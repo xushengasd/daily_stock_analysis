@@ -133,6 +133,128 @@ _CONFIDENCE_LEVEL_TRANSLATIONS = {
     "low": {"zh": "低", "en": "Low", "ko": "낮음"},
 }
 
+_STRATEGY_SIGNAL_CANONICAL_MAP = {
+    "strong buy": "strong_buy",
+    "strong_buy": "strong_buy",
+    "强烈买入": "strong_buy",
+    "buy": "buy",
+    "买入": "buy",
+    "hold": "hold",
+    "持有": "hold",
+    "sell": "sell",
+    "卖出": "sell",
+    "strong sell": "strong_sell",
+    "strong_sell": "strong_sell",
+    "强烈卖出": "strong_sell",
+}
+
+_STRATEGY_SIGNAL_TRANSLATIONS = {
+    "strong_buy": {"zh": "强烈买入", "en": "Strong Buy", "ko": "적극 매수"},
+    "buy": {"zh": "买入", "en": "Buy", "ko": "매수"},
+    "hold": {"zh": "持有", "en": "Hold", "ko": "보유"},
+    "sell": {"zh": "卖出", "en": "Sell", "ko": "매도"},
+    "strong_sell": {"zh": "强烈卖出", "en": "Strong Sell", "ko": "적극 매도"},
+}
+
+_CONSENSUS_LEVEL_CANONICAL_MAP = {
+    "high": "high",
+    "高": "high",
+    "medium": "medium",
+    "中": "medium",
+    "low": "low",
+    "低": "low",
+}
+
+_CONSENSUS_LEVEL_TRANSLATIONS = {
+    "high": {"zh": "高", "en": "High", "ko": "높음"},
+    "medium": {"zh": "中", "en": "Medium", "ko": "보통"},
+    "low": {"zh": "低", "en": "Low", "ko": "낮음"},
+}
+
+_CONFLICT_SEVERITY_CANONICAL_MAP = {
+    "none": "none",
+    "无": "none",
+    "low": "low",
+    "低": "low",
+    "medium": "medium",
+    "中": "medium",
+    "high": "high",
+    "高": "high",
+}
+
+_CONFLICT_SEVERITY_TRANSLATIONS = {
+    "none": {"zh": "无", "en": "None", "ko": "없음"},
+    "low": {"zh": "低", "en": "Low", "ko": "낮음"},
+    "medium": {"zh": "中", "en": "Medium", "ko": "보통"},
+    "high": {"zh": "高", "en": "High", "ko": "높음"},
+}
+
+_STRATEGY_SKILL_CANONICAL_MAP = {
+    "bull trend": "bull_trend",
+    "bull_trend": "bull_trend",
+    "默认多头趋势": "bull_trend",
+    "hot theme": "hot_theme",
+    "hot_theme": "hot_theme",
+    "热点题材": "hot_theme",
+    "volume breakout": "volume_breakout",
+    "volume_breakout": "volume_breakout",
+    "放量突破": "volume_breakout",
+    "ma golden cross": "ma_golden_cross",
+    "ma_golden_cross": "ma_golden_cross",
+    "均线金叉": "ma_golden_cross",
+    "growth quality": "growth_quality",
+    "growth_quality": "growth_quality",
+    "成长质量": "growth_quality",
+    "bottom volume": "bottom_volume",
+    "bottom_volume": "bottom_volume",
+    "底部放量": "bottom_volume",
+    "box oscillation": "box_oscillation",
+    "box_oscillation": "box_oscillation",
+    "箱体震荡": "box_oscillation",
+    "chan theory": "chan_theory",
+    "chan_theory": "chan_theory",
+    "缠论结构": "chan_theory",
+    "dragon head": "dragon_head",
+    "dragon_head": "dragon_head",
+    "龙头战法": "dragon_head",
+    "emotion cycle": "emotion_cycle",
+    "emotion_cycle": "emotion_cycle",
+    "情绪周期": "emotion_cycle",
+    "event driven": "event_driven",
+    "event_driven": "event_driven",
+    "事件驱动": "event_driven",
+    "expectation repricing": "expectation_repricing",
+    "expectation_repricing": "expectation_repricing",
+    "预期重估": "expectation_repricing",
+    "one yang three yin": "one_yang_three_yin",
+    "one_yang_three_yin": "one_yang_three_yin",
+    "一阳三阴": "one_yang_three_yin",
+    "shrink pullback": "shrink_pullback",
+    "shrink_pullback": "shrink_pullback",
+    "缩量回踩": "shrink_pullback",
+    "wave theory": "wave_theory",
+    "wave_theory": "wave_theory",
+    "波浪理论": "wave_theory",
+}
+
+_STRATEGY_SKILL_TRANSLATIONS = {
+    "bull_trend": {"zh": "默认多头趋势", "en": "Bull Trend", "ko": "기본 상승 추세"},
+    "hot_theme": {"zh": "热点题材", "en": "Hot Theme", "ko": "핫 테마"},
+    "volume_breakout": {"zh": "放量突破", "en": "Volume Breakout", "ko": "거래량 돌파"},
+    "ma_golden_cross": {"zh": "均线金叉", "en": "MA Golden Cross", "ko": "이평선 골든크로스"},
+    "growth_quality": {"zh": "成长质量", "en": "Growth Quality", "ko": "성장 품질"},
+    "bottom_volume": {"zh": "底部放量", "en": "Bottom Volume", "ko": "저점 거래량"},
+    "box_oscillation": {"zh": "箱体震荡", "en": "Box Oscillation", "ko": "박스권 등락"},
+    "chan_theory": {"zh": "缠论结构", "en": "Chan Theory", "ko": "찬 이론 구조"},
+    "dragon_head": {"zh": "龙头战法", "en": "Dragon Head", "ko": "대장주 전략"},
+    "emotion_cycle": {"zh": "情绪周期", "en": "Emotion Cycle", "ko": "심리 사이클"},
+    "event_driven": {"zh": "事件驱动", "en": "Event Driven", "ko": "이벤트 드리븐"},
+    "expectation_repricing": {"zh": "预期重估", "en": "Expectation Repricing", "ko": "기대 재평가"},
+    "one_yang_three_yin": {"zh": "一阳三阴", "en": "One Yang Three Yin", "ko": "일양삼음"},
+    "shrink_pullback": {"zh": "缩量回踩", "en": "Shrink Pullback", "ko": "거래량 축소 눌림"},
+    "wave_theory": {"zh": "波浪理论", "en": "Wave Theory", "ko": "파동 이론"},
+}
+
 _CHIP_HEALTH_CANONICAL_MAP = {
     "健康": "healthy",
     "healthy": "healthy",
@@ -356,6 +478,14 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "market_conditions_label": "市场环境",
         "strongest_bullish_signal_label": "最强看多信号",
         "strongest_bearish_signal_label": "最强看空信号",
+        "strategy_synthesis_heading": "多策略综合",
+        "strategy_final_signal_label": "综合信号",
+        "strategy_consensus_level_label": "共识度",
+        "strategy_conflict_label": "冲突",
+        "strategy_confidence_label": "置信度",
+        "strategy_summary_label": "综合说明",
+        "strategy_supporting_skills_label": "支持策略",
+        "strategy_opposing_skills_label": "反方策略",
     },
     "en": {
         "dashboard_title": "Decision Dashboard",
@@ -480,6 +610,14 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "market_conditions_label": "Market Conditions",
         "strongest_bullish_signal_label": "Strongest Bullish Signal",
         "strongest_bearish_signal_label": "Strongest Bearish Signal",
+        "strategy_synthesis_heading": "Strategy Synthesis",
+        "strategy_final_signal_label": "Final Signal",
+        "strategy_consensus_level_label": "Consensus",
+        "strategy_conflict_label": "Conflict",
+        "strategy_confidence_label": "Confidence",
+        "strategy_summary_label": "Summary",
+        "strategy_supporting_skills_label": "Supporting Strategies",
+        "strategy_opposing_skills_label": "Opposing Strategies",
     },
     "ko": {
         "dashboard_title": "결정 대시보드",
@@ -604,6 +742,14 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "market_conditions_label": "시장 환경",
         "strongest_bullish_signal_label": "최강 상승 신호",
         "strongest_bearish_signal_label": "최강 하락 신호",
+        "strategy_synthesis_heading": "전략 종합",
+        "strategy_final_signal_label": "종합 신호",
+        "strategy_consensus_level_label": "공감도",
+        "strategy_conflict_label": "충돌",
+        "strategy_confidence_label": "신뢰도",
+        "strategy_summary_label": "종합 설명",
+        "strategy_supporting_skills_label": "지지 전략",
+        "strategy_opposing_skills_label": "반대 전략",
     },
 }
 
@@ -836,6 +982,46 @@ def localize_confidence_level(value: Any, language: Optional[str]) -> str:
         language,
         canonical_map=_CONFIDENCE_LEVEL_CANONICAL_MAP,
         translations=_CONFIDENCE_LEVEL_TRANSLATIONS,
+    )
+
+
+def localize_strategy_signal(value: Any, language: Optional[str]) -> str:
+    """Translate strategy signal labels when recognized."""
+    return _translate_from_map(
+        value,
+        language,
+        canonical_map=_STRATEGY_SIGNAL_CANONICAL_MAP,
+        translations=_STRATEGY_SIGNAL_TRANSLATIONS,
+    )
+
+
+def localize_consensus_level(value: Any, language: Optional[str]) -> str:
+    """Translate strategy consensus levels when recognized."""
+    return _translate_from_map(
+        value,
+        language,
+        canonical_map=_CONSENSUS_LEVEL_CANONICAL_MAP,
+        translations=_CONSENSUS_LEVEL_TRANSLATIONS,
+    )
+
+
+def localize_conflict_severity(value: Any, language: Optional[str]) -> str:
+    """Translate strategy conflict severity when recognized."""
+    return _translate_from_map(
+        value,
+        language,
+        canonical_map=_CONFLICT_SEVERITY_CANONICAL_MAP,
+        translations=_CONFLICT_SEVERITY_TRANSLATIONS,
+    )
+
+
+def localize_strategy_skill(value: Any, language: Optional[str]) -> str:
+    """Translate strategy skill names when recognized."""
+    return _translate_from_map(
+        value,
+        language,
+        canonical_map=_STRATEGY_SKILL_CANONICAL_MAP,
+        translations=_STRATEGY_SKILL_TRANSLATIONS,
     )
 
 

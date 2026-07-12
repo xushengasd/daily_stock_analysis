@@ -15,6 +15,11 @@ from src.agent.skills.defaults import (
     extract_skill_id,
     is_skill_agent_name,
 )
+from src.agent.skills.synthesis import (
+    ConflictDetector,
+    StrategySynthesizer,
+    strategy_opinion_from_agent_opinion,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +97,27 @@ class SkillAggregator:
                 break
 
         skill_names = [extract_skill_id(op.agent_name) or op.agent_name for op in skill_opinions]
+        strategy_opinions = [
+            strategy_opinion_from_agent_opinion(op)
+            for op in skill_opinions
+        ]
+        conflicts = ConflictDetector().detect(strategy_opinions, final_signal=final_signal)
+        synthesis = StrategySynthesizer().synthesize(
+            strategy_opinions,
+            weighted_score=weighted_score,
+            final_signal=final_signal,
+            weighted_confidence=weighted_confidence,
+            conflicts=conflicts,
+        )
+        adjusted_confidence = synthesis["confidence"]
+        conflict_count = synthesis["conflict_count"]
+        conflict_severity = synthesis["conflict_severity"]
+        consensus_level = synthesis["consensus_level"]
+
         reasoning_parts = [
             f"Skill consensus from {len(skill_opinions)} skills "
-            f"({', '.join(skill_names)}): weighted score {weighted_score:.2f}/5.0"
+            f"({', '.join(skill_names)}): weighted score {weighted_score:.2f}/5.0, "
+            f"consensus={consensus_level}, conflicts={conflict_severity}({conflict_count})"
         ]
         for op, weight in zip(skill_opinions, weights):
             name = extract_skill_id(op.agent_name) or op.agent_name
@@ -103,7 +126,7 @@ class SkillAggregator:
         return AgentOpinion(
             agent_name=SKILL_CONSENSUS_AGENT_NAME,
             signal=final_signal,
-            confidence=min(1.0, weighted_confidence),
+            confidence=adjusted_confidence,
             reasoning="\n".join(reasoning_parts),
             raw_data={
                 "weighted_score": round(weighted_score, 2),
@@ -113,6 +136,11 @@ class SkillAggregator:
                     op.agent_name: {"signal": op.signal, "confidence": op.confidence}
                     for op in skill_opinions
                 },
+                "strategy_synthesis": synthesis,
+                "conflicts": synthesis["conflicts"],
+                "conflict_count": conflict_count,
+                "conflict_severity": conflict_severity,
+                "consensus_level": consensus_level,
             },
         )
 

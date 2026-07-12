@@ -724,6 +724,9 @@ class AgentOrchestrator:
                     "signal": consensus.signal,
                     "confidence": consensus.confidence,
                     "reasoning": consensus.reasoning,
+                    "raw_data": consensus.raw_data,
+                    "strategy_synthesis": consensus.raw_data.get("strategy_synthesis"),
+                    "conflicts": consensus.raw_data.get("conflicts", []),
                 })
                 logger.info(
                     "[Orchestrator] skill consensus: signal=%s confidence=%.2f",
@@ -1084,6 +1087,10 @@ class AgentOrchestrator:
         if data_perspective:
             dashboard_block["data_perspective"] = data_perspective
 
+        strategy_synthesis = self._collect_strategy_synthesis(ctx, dashboard_block)
+        if strategy_synthesis and not isinstance(dashboard_block.get("strategy_synthesis"), dict):
+            dashboard_block["strategy_synthesis"] = strategy_synthesis
+
         dashboard_block["core_conclusion"] = core
         dashboard_block["intelligence"] = intelligence
         dashboard_block["battle_plan"] = battle
@@ -1115,6 +1122,35 @@ class AgentOrchestrator:
         payload["risk_warning"] = risk_warning
         payload["dashboard"] = dashboard_block
         return payload
+
+    def _collect_strategy_synthesis(
+        self,
+        ctx: AgentContext,
+        dashboard_block: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        existing = dashboard_block.get("strategy_synthesis")
+        if isinstance(existing, dict) and existing:
+            return existing
+
+        consensus_data = ctx.get_data("skill_consensus")
+        if isinstance(consensus_data, dict):
+            synthesis = consensus_data.get("strategy_synthesis")
+            if isinstance(synthesis, dict) and synthesis:
+                return synthesis
+            raw_data = consensus_data.get("raw_data")
+            if isinstance(raw_data, dict):
+                synthesis = raw_data.get("strategy_synthesis")
+                if isinstance(synthesis, dict) and synthesis:
+                    return synthesis
+
+        for opinion in reversed(ctx.opinions):
+            if getattr(opinion, "agent_name", "") != "skill_consensus":
+                continue
+            raw_data = opinion.raw_data if isinstance(opinion.raw_data, dict) else {}
+            synthesis = raw_data.get("strategy_synthesis")
+            if isinstance(synthesis, dict) and synthesis:
+                return synthesis
+        return None
 
     def _collect_key_levels(
         self,

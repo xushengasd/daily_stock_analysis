@@ -155,6 +155,36 @@ class AgentOpinion:
             return None
 
 
+@dataclass
+class StrategyOpinion:
+    """Normalized view of a skill/strategy opinion for synthesis."""
+
+    skill_id: str = ""
+    agent_name: str = ""
+    signal: str = "hold"
+    confidence: float = 0.0
+    reasoning: str = ""
+    score_adjustment: float = 0.0
+    conditions_met: List[str] = field(default_factory=list)
+    conditions_missed: List[str] = field(default_factory=list)
+    key_levels: Dict[str, float] = field(default_factory=dict)
+    raw_data: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.confidence = max(0.0, min(1.0, float(self.confidence)))
+
+
+@dataclass
+class StrategyConflict:
+    """Deterministic conflict found among strategy opinions."""
+
+    conflict_type: str = ""
+    severity: str = "medium"
+    description: str = ""
+    participants: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
 # ============================================================
 # StageResult — return type from a single pipeline stage
 # ============================================================

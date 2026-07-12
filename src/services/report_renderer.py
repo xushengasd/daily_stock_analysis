@@ -23,7 +23,11 @@ from src.report_language import (
     get_chip_unavailable_reason,
     is_chip_structure_unavailable,
     localize_chip_health,
+    localize_conflict_severity,
+    localize_consensus_level,
     localize_operation_advice,
+    localize_strategy_signal,
+    localize_strategy_skill,
     localize_trend_prediction,
     normalize_report_language,
 )
@@ -225,6 +229,10 @@ def render(
         "localize_action_label": localize_action_label,
         "localize_trend_prediction": localize_trend_prediction,
         "localize_chip_health": localize_chip_health,
+        "localize_strategy_signal": localize_strategy_signal,
+        "localize_strategy_skill": localize_strategy_skill,
+        "localize_consensus_level": localize_consensus_level,
+        "localize_conflict_severity": localize_conflict_severity,
         "signal_attribution_has_content": signal_attribution_has_content,
         "signal_attribution_weight_items": signal_attribution_weight_items,
     }

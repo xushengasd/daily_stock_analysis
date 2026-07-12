@@ -26,6 +26,10 @@ from src.report_language import (
     is_chip_structure_unavailable,
     localize_bias_status,
     localize_chip_health,
+    localize_conflict_severity,
+    localize_consensus_level,
+    localize_strategy_signal,
+    localize_strategy_skill,
     localize_trend_prediction,
     normalize_report_language,
 )
@@ -1160,6 +1164,37 @@ class HistoryService:
                 report_lines.append(f"**🐻 {labels.get('strongest_bearish_signal_label', '最强看空信号')}**: {bearish}")
             report_lines.append("")
 
+        # ========== 多策略综合 ==========
+        strategy_synthesis = dashboard.get('strategy_synthesis', {}) if dashboard else {}
+        if strategy_synthesis:
+            confidence = strategy_synthesis.get('confidence')
+            confidence_text = f"{confidence:.0%}" if isinstance(confidence, (int, float)) else "N/A"
+            report_lines.extend([
+                f"### 🧩 {labels.get('strategy_synthesis_heading', '多策略综合')}",
+                "",
+                (
+                    f"- {labels.get('strategy_final_signal_label', '综合信号')}: "
+                    f"{localize_strategy_signal(strategy_synthesis.get('final_signal', 'N/A'), report_language)} | "
+                    f"{labels.get('strategy_consensus_level_label', '共识度')}: "
+                    f"{localize_consensus_level(strategy_synthesis.get('consensus_level', 'N/A'), report_language)} | "
+                    f"{labels.get('strategy_conflict_label', '冲突')}: "
+                    f"{localize_conflict_severity(strategy_synthesis.get('conflict_severity', 'none'), report_language)} "
+                    f"({strategy_synthesis.get('conflict_count', 0)}) | "
+                    f"{labels.get('strategy_confidence_label', '置信度')}: {confidence_text}"
+                ),
+            ])
+            if strategy_synthesis.get('summary'):
+                report_lines.append(f"- {labels.get('strategy_summary_label', '综合说明')}: {strategy_synthesis.get('summary')}")
+            report_lines.append(
+                f"- {labels.get('strategy_supporting_skills_label', '支持策略')}: "
+                f"{self._format_strategy_skill_items(strategy_synthesis.get('supporting_skills'), report_language)}"
+            )
+            report_lines.append(
+                f"- {labels.get('strategy_opposing_skills_label', '反方策略')}: "
+                f"{self._format_strategy_skill_items(strategy_synthesis.get('opposing_skills'), report_language)}"
+            )
+            report_lines.append("")
+
         # ========== 如果没有 dashboard，显示传统格式 ==========
         if not dashboard:
             # 操作理由
@@ -1201,6 +1236,25 @@ class HistoryService:
         ])
 
         return "\n".join(report_lines)
+
+    @staticmethod
+    def _format_strategy_skill_items(items: Any, report_language: str = "zh") -> str:
+        if not isinstance(items, list):
+            return "无"
+        formatted: List[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            skill_id = str(item.get("skill_id") or "").strip()
+            signal = str(item.get("signal") or "").strip()
+            confidence = item.get("confidence")
+            if not skill_id:
+                continue
+            suffix = f"/{localize_strategy_signal(signal, report_language)}" if signal else ""
+            if isinstance(confidence, (int, float)):
+                suffix += f"/{confidence:.0%}"
+            formatted.append(f"{localize_strategy_skill(skill_id, report_language)}{suffix}")
+        return "、".join(formatted) if formatted else "无"
 
     @staticmethod
     def _escape_md(text: Optional[str]) -> str:

@@ -34,6 +34,7 @@ from src.agent.protocols import (
     Signal,
     StageResult,
     StageStatus,
+    StrategyOpinion,
 )
 from src.agent.stock_scope import StockScope, resolve_stock_scope
 from src.config import AGENT_MAX_STEPS_DEFAULT, Config
@@ -638,6 +639,84 @@ class TestStrategyAggregator(unittest.TestCase):
         # Average of buy(4) + sell(2) = 3.0, which maps to "hold"
         self.assertEqual(result.signal, "hold")
 
+    def test_strategy_opinion_conversion_preserves_skill_payload(self):
+        from src.agent.skills.synthesis import strategy_opinion_from_agent_opinion
+
+        opinion = AgentOpinion(
+            agent_name="skill_bull_trend",
+            signal="buy",
+            confidence=0.8,
+            reasoning="趋势偏强",
+            raw_data={
+                "skill_id": "bull_trend",
+                "score_adjustment": "12",
+                "conditions_met": ["站上均线"],
+                "conditions_missed": ["量能不足"],
+            },
+        )
+
+        strategy = strategy_opinion_from_agent_opinion(opinion)
+
+        self.assertEqual(strategy.skill_id, "bull_trend")
+        self.assertEqual(strategy.signal, "buy")
+        self.assertEqual(strategy.score_adjustment, 12.0)
+        self.assertEqual(strategy.conditions_met, ["站上均线"])
+        self.assertEqual(strategy.conditions_missed, ["量能不足"])
+
+    def test_conflict_detector_detects_directional_and_adjustment_conflicts(self):
+        from src.agent.skills.synthesis import ConflictDetector
+
+        opinions = [
+            StrategyOpinion(skill_id="bull_trend", signal="strong_buy", confidence=0.8, score_adjustment=12),
+            StrategyOpinion(skill_id="hot_theme", signal="sell", confidence=0.76, score_adjustment=-10),
+        ]
+
+        conflicts = ConflictDetector().detect(opinions, final_signal="hold")
+        conflict_types = {conflict.conflict_type for conflict in conflicts}
+
+        self.assertIn("directional_opposition", conflict_types)
+        self.assertIn("wide_score_dispersion", conflict_types)
+        self.assertIn("high_confidence_dissent", conflict_types)
+        self.assertIn("adjustment_contradiction", conflict_types)
+        self.assertEqual(conflicts[0].severity, "high")
+
+    def test_strategy_synthesizer_adjusts_confidence_and_localizes_summary(self):
+        from src.agent.skills.synthesis import ConflictDetector, StrategySynthesizer
+
+        opinions = [
+            StrategyOpinion(skill_id="bull_trend", signal="buy", confidence=0.8),
+            StrategyOpinion(skill_id="hot_theme", signal="sell", confidence=0.75),
+        ]
+        conflicts = ConflictDetector().detect(opinions, final_signal="hold")
+
+        synthesis = StrategySynthesizer().synthesize(
+            opinions,
+            weighted_score=3.0,
+            final_signal="hold",
+            weighted_confidence=0.8,
+            conflicts=conflicts,
+        )
+
+        self.assertEqual(synthesis["final_signal"], "hold")
+        self.assertEqual(synthesis["conflict_severity"], "high")
+        self.assertAlmostEqual(synthesis["confidence"], 0.68)
+        self.assertIn("综合信号为持有", synthesis["summary"])
+
+    def test_skill_aggregator_raw_data_contains_strategy_synthesis(self):
+        from src.agent.strategies.aggregator import StrategyAggregator
+
+        agg = StrategyAggregator()
+        ctx = AgentContext()
+        ctx.add_opinion(AgentOpinion(agent_name="strategy_bull_trend", signal="buy", confidence=0.8))
+        ctx.add_opinion(AgentOpinion(agent_name="strategy_hot_theme", signal="sell", confidence=0.8))
+
+        result = agg.aggregate(ctx)
+
+        self.assertIsNotNone(result)
+        self.assertIn("strategy_synthesis", result.raw_data)
+        self.assertIn("conflicts", result.raw_data)
+        self.assertGreater(result.raw_data["conflict_count"], 0)
+
 
 # ============================================================
 # PortfolioAgent.post_process
@@ -699,6 +778,25 @@ class TestDecisionAgentPostProcess(unittest.TestCase):
         self.assertIsNotNone(opinion)
         self.assertEqual(opinion.signal, "buy")
         self.assertEqual(ctx.get_data("final_dashboard")["decision_type"], "buy")
+
+
+    def test_normalized_dashboard_carries_strategy_synthesis(self):
+        from src.agent.orchestrator import AgentOrchestrator
+
+        orch = AgentOrchestrator(tool_registry=MagicMock(), llm_adapter=MagicMock())
+        ctx = AgentContext(query="test", stock_code="600519", stock_name="贵州茅台")
+        synthesis = {
+            "final_signal": "hold",
+            "confidence": 0.6,
+            "conflict_count": 0,
+            "conflict_severity": "none",
+        }
+        ctx.set_data("skill_consensus", {"strategy_synthesis": synthesis})
+
+        normalized = orch._normalize_dashboard_payload({"dashboard": {}}, ctx)
+
+        self.assertIsNotNone(normalized)
+        self.assertEqual(normalized["dashboard"]["strategy_synthesis"], synthesis)
 
 
 class TestIntelAgentPostProcess(unittest.TestCase):
