@@ -108,6 +108,7 @@ class SkillAggregator:
             final_signal=final_signal,
             weighted_confidence=weighted_confidence,
             conflicts=conflicts,
+            report_language=str(ctx.meta.get("report_language") or "zh"),
         )
         adjusted_confidence = synthesis["confidence"]
         conflict_count = synthesis["conflict_count"]

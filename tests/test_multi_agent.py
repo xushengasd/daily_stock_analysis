@@ -702,6 +702,29 @@ class TestStrategyAggregator(unittest.TestCase):
         self.assertAlmostEqual(synthesis["confidence"], 0.68)
         self.assertIn("综合信号为持有", synthesis["summary"])
 
+        english = StrategySynthesizer().synthesize(
+            opinions,
+            weighted_score=3.0,
+            final_signal="hold",
+            weighted_confidence=0.8,
+            conflicts=conflicts,
+            report_language="en",
+        )
+        korean = StrategySynthesizer().synthesize(
+            opinions,
+            weighted_score=3.0,
+            final_signal="hold",
+            weighted_confidence=0.8,
+            conflicts=conflicts,
+            report_language="ko",
+        )
+
+        self.assertIn("final signal is Hold", english["summary"])
+        self.assertIn("conflict severity is High", english["summary"])
+        self.assertNotIn("综合信号", english["summary"])
+        self.assertIn("종합 신호는 보유", korean["summary"])
+        self.assertNotIn("综合信号", korean["summary"])
+
     def test_skill_aggregator_raw_data_contains_strategy_synthesis(self):
         from src.agent.strategies.aggregator import StrategyAggregator
 

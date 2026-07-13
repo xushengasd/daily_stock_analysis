@@ -14,6 +14,7 @@ from src.report_language import (
     localize_conflict_severity,
     localize_consensus_level,
     localize_strategy_signal,
+    normalize_report_language,
 )
 
 SIGNAL_SCORES: Dict[str, float] = {
@@ -180,6 +181,7 @@ class StrategySynthesizer:
         final_signal: str,
         weighted_confidence: float,
         conflicts: List[StrategyConflict],
+        report_language: str = "zh",
     ) -> Dict[str, Any]:
         conflict_severity = _highest_severity(conflicts)
         adjusted_confidence = self.adjust_confidence(weighted_confidence, conflict_severity)
@@ -199,7 +201,7 @@ class StrategySynthesizer:
             "opposing_skills": opposing,
             "neutral_skills": neutral,
             "consensus_level": consensus_level,
-            "summary": self._summary(final_signal, consensus_level, conflict_severity, len(opinions), len(conflicts)),
+            "summary": self._summary(final_signal, consensus_level, conflict_severity, len(opinions), len(conflicts), report_language),
         }
 
     @staticmethod
@@ -247,10 +249,38 @@ class StrategySynthesizer:
         return "medium"
 
     @staticmethod
-    def _summary(final_signal: str, consensus_level: str, conflict_severity: str, opinion_count: int, conflict_count: int) -> str:
-        signal_label = localize_strategy_signal(final_signal, "zh")
-        consensus_label = localize_consensus_level(consensus_level, "zh")
-        severity_label = localize_conflict_severity(conflict_severity, "zh")
+    def _summary(
+        final_signal: str,
+        consensus_level: str,
+        conflict_severity: str,
+        opinion_count: int,
+        conflict_count: int,
+        report_language: str,
+    ) -> str:
+        language = normalize_report_language(report_language)
+        signal_label = localize_strategy_signal(final_signal, language)
+        consensus_label = localize_consensus_level(consensus_level, language)
+        severity_label = localize_conflict_severity(conflict_severity, language)
+        if language == "en":
+            if conflict_count:
+                return (
+                    f"Strategy synthesis from {opinion_count} strategies: final signal is {signal_label}, "
+                    f"consensus level is {consensus_label}, conflict severity is {severity_label}."
+                )
+            return (
+                f"Strategy synthesis from {opinion_count} strategies: final signal is {signal_label}, "
+                f"consensus level is {consensus_label}, with no detected conflicts."
+            )
+        if language == "ko":
+            if conflict_count:
+                return (
+                    f"{opinion_count}개 전략의 종합 판단: 종합 신호는 {signal_label}, "
+                    f"공감도는 {consensus_label}, 충돌 강도는 {severity_label}입니다."
+                )
+            return (
+                f"{opinion_count}개 전략의 종합 판단: 종합 신호는 {signal_label}, "
+                f"공감도는 {consensus_label}, 감지된 전략 충돌은 없습니다."
+            )
         if conflict_count:
             return (
                 f"来自 {opinion_count} 个策略的综合判断：综合信号为{signal_label}，"
