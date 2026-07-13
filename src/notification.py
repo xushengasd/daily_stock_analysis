@@ -48,6 +48,8 @@ from src.report_language import (
     localize_consensus_level,
     localize_strategy_signal,
     localize_strategy_skill,
+    localize_strategy_conflict_description,
+    localize_strategy_synthesis_summary,
     localize_trend_prediction,
     normalize_report_language,
 )
@@ -144,8 +146,9 @@ def _append_strategy_synthesis_block(lines: List[str], strategy_synthesis: Any, 
             f"{labels['strategy_confidence_label']}: {confidence_text}"
         ),
     ])
-    if strategy_synthesis.get("summary"):
-        lines.append(f"- {labels['strategy_summary_label']}: {strategy_synthesis.get('summary')}")
+    summary = localize_strategy_synthesis_summary(strategy_synthesis, report_language)
+    if summary:
+        lines.append(f"- {labels['strategy_summary_label']}: {summary}")
     lines.append(
         f"- {labels['strategy_supporting_skills_label']}: "
         f"{_format_strategy_skill_items(strategy_synthesis.get('supporting_skills'), report_language)}"
@@ -155,13 +158,13 @@ def _append_strategy_synthesis_block(lines: List[str], strategy_synthesis: Any, 
         f"{_format_strategy_skill_items(strategy_synthesis.get('opposing_skills'), report_language)}"
     )
     for conflict in (strategy_synthesis.get("conflicts") or [])[:3]:
-        if isinstance(conflict, dict) and conflict.get("description"):
+        if isinstance(conflict, dict) and conflict.get("conflict_type"):
             participants = conflict.get("participants") or []
             participant_text = "、".join(localize_strategy_skill(participant, report_language) for participant in participants)
             suffix = f"（{participant_text}）" if participant_text else ""
             lines.append(
                 f"- {localize_conflict_severity(conflict.get('severity', 'medium'), report_language)}: "
-                f"{conflict.get('description')}{suffix}"
+                f"{localize_strategy_conflict_description(conflict.get('conflict_type'), report_language)}{suffix}"
             )
     lines.append("")
 
@@ -1714,8 +1717,9 @@ class NotificationService(
                         f"{localize_conflict_severity(strategy_synthesis.get('conflict_severity', 'none'), report_language)}"
                         f"({strategy_synthesis.get('conflict_count', 0)})"
                     )
-                    if strategy_synthesis.get('summary'):
-                        lines.append(str(strategy_synthesis.get('summary'))[:80])
+                    summary = localize_strategy_synthesis_summary(strategy_synthesis, report_language)
+                    if summary:
+                        lines.append(summary[:80])
                     lines.append("")
 
                 # 检查清单简化版

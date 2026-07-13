@@ -67,8 +67,8 @@
 {% set strategy_synthesis = dashboard.get('strategy_synthesis') or {} %}
 {% if strategy_synthesis %}
 🧩 **{{ labels.strategy_synthesis_heading }}**: {{ localize_strategy_signal(strategy_synthesis.get('final_signal', 'N/A'), report_language) }} | {{ labels.strategy_consensus_level_label }} {{ localize_consensus_level(strategy_synthesis.get('consensus_level', 'N/A'), report_language) }} | {{ labels.strategy_conflict_label }} {{ localize_conflict_severity(strategy_synthesis.get('conflict_severity', 'none'), report_language) }}({{ strategy_synthesis.get('conflict_count', 0) }})
-{% if strategy_synthesis.get('summary') %}
-{{ strategy_synthesis.get('summary')[:80] }}
+{% if localize_strategy_synthesis_summary(strategy_synthesis, report_language) %}
+{{ localize_strategy_synthesis_summary(strategy_synthesis, report_language)[:80] }}
 {% endif %}
 {% endif %}
 

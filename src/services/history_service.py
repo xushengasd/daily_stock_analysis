@@ -30,6 +30,7 @@ from src.report_language import (
     localize_consensus_level,
     localize_strategy_signal,
     localize_strategy_skill,
+    localize_strategy_synthesis_summary,
     localize_trend_prediction,
     normalize_report_language,
 )
@@ -1183,8 +1184,9 @@ class HistoryService:
                     f"{labels.get('strategy_confidence_label', '置信度')}: {confidence_text}"
                 ),
             ])
-            if strategy_synthesis.get('summary'):
-                report_lines.append(f"- {labels.get('strategy_summary_label', '综合说明')}: {strategy_synthesis.get('summary')}")
+            summary = localize_strategy_synthesis_summary(strategy_synthesis, report_language)
+            if summary:
+                report_lines.append(f"- {labels.get('strategy_summary_label', '综合说明')}: {summary}")
             report_lines.append(
                 f"- {labels.get('strategy_supporting_skills_label', '支持策略')}: "
                 f"{self._format_strategy_skill_items(strategy_synthesis.get('supporting_skills'), report_language)}"

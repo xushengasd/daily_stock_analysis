@@ -36,6 +36,44 @@ _CANONICAL_DECISION_SIGNAL_MAP: Dict[str, str] = {
     "strong_sell": "sell",
 }
 
+_STRATEGY_SIGNAL_ALIASES: Dict[str, str] = {
+    "strong_buy": "strong_buy",
+    "strong buy": "strong_buy",
+    "strong-buy": "strong_buy",
+    "strongbuy": "strong_buy",
+    "buy": "buy",
+    "hold": "hold",
+    "neutral": "hold",
+    "sell": "sell",
+    "strong_sell": "strong_sell",
+    "strong sell": "strong_sell",
+    "strong-sell": "strong_sell",
+    "strongsell": "strong_sell",
+}
+
+
+def normalize_strategy_signal(signal: Any, default: str = "hold") -> tuple[str, bool, str]:
+    """Normalize strategy signal labels while preserving invalid input state."""
+    original = "" if signal is None else str(signal).strip()
+    normalized = original.lower().replace("/", "_")
+    canonical = _STRATEGY_SIGNAL_ALIASES.get(normalized)
+    if canonical is not None:
+        return canonical, False, original
+    return default, bool(original), original
+
+
+def strategy_signal_score(signal: str) -> float:
+    scores = {
+        "strong_buy": 5.0,
+        "buy": 4.0,
+        "hold": 3.0,
+        "sell": 2.0,
+        "strong_sell": 1.0,
+    }
+    if signal not in scores:
+        raise ValueError(f"Unknown strategy signal: {signal!r}")
+    return scores[signal]
+
 
 def normalize_decision_signal(signal: Any, default: str = "hold") -> str:
     """Map model-facing signal labels to the dashboard's stable enum."""
@@ -169,6 +207,8 @@ class StrategyOpinion:
     conditions_missed: List[str] = field(default_factory=list)
     key_levels: Dict[str, float] = field(default_factory=dict)
     raw_data: Dict[str, Any] = field(default_factory=dict)
+    original_signal: str = ""
+    invalid_signal: bool = False
 
     def __post_init__(self) -> None:
         self.confidence = max(0.0, min(1.0, float(self.confidence)))
@@ -181,6 +221,7 @@ class StrategyConflict:
     conflict_type: str = ""
     severity: str = "medium"
     description: str = ""
+    description_key: str = ""
     participants: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 

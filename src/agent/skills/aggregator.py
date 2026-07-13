@@ -108,7 +108,6 @@ class SkillAggregator:
             final_signal=final_signal,
             weighted_confidence=weighted_confidence,
             conflicts=conflicts,
-            report_language=str(ctx.meta.get("report_language") or "zh"),
         )
         adjusted_confidence = synthesis["confidence"]
         conflict_count = synthesis["conflict_count"]
@@ -134,8 +133,13 @@ class SkillAggregator:
                 "total_adjustment": total_adjustment,
                 "skill_count": len(skill_opinions),
                 "individual_signals": {
-                    op.agent_name: {"signal": op.signal, "confidence": op.confidence}
-                    for op in skill_opinions
+                    op.agent_name: {
+                        "signal": strategy.signal,
+                        "confidence": op.confidence,
+                        "original_signal": strategy.original_signal,
+                        "invalid_signal": strategy.invalid_signal,
+                    }
+                    for op, strategy in zip(skill_opinions, strategy_opinions)
                 },
                 "strategy_synthesis": synthesis,
                 "conflicts": synthesis["conflicts"],

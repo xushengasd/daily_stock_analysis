@@ -1065,6 +1065,61 @@ def is_chip_structure_unavailable(chip_data: Any) -> bool:
     return all(is_chip_placeholder_value(value) for value in chip_data.values())
 
 
+def localize_strategy_conflict_description(conflict_type: Any, language: Optional[str]) -> str:
+    """Translate strategy conflict type into a display sentence at render boundaries."""
+    lang = normalize_report_language(language)
+    key = str(conflict_type or "").strip()
+    translations = {
+        "directional_opposition": {
+            "zh": "策略方向出现对立：部分策略看多，部分策略看空，综合结论需要降低确定性。",
+            "en": "Strategy directions diverge: some strategies are bullish while others are bearish, so conviction should be reduced.",
+            "ko": "전략 방향이 엇갈립니다. 일부 전략은 상승을, 일부 전략은 하락을 보며 확신도를 낮춰야 합니다.",
+        },
+        "wide_score_dispersion": {
+            "zh": "策略信号分数分布较宽，说明多策略对行情结构存在明显分歧。",
+            "en": "Strategy signal scores are widely dispersed, indicating meaningful disagreement on market structure.",
+            "ko": "전략 신호 점수 분포가 넓어 시장 구조에 대한 전략 간 이견이 큽니다.",
+        },
+        "high_confidence_dissent": {
+            "zh": "存在高置信少数派策略与综合信号明显不一致，应保留反方观点。",
+            "en": "A high-confidence minority strategy materially disagrees with the final signal and should be kept as a dissenting view.",
+            "ko": "높은 확신도의 소수 전략이 종합 신호와 크게 달라 반대 관점으로 보존해야 합니다.",
+        },
+        "adjustment_contradiction": {
+            "zh": "策略加减分方向相互矛盾，说明不同策略对同一标的的边际评分分歧较大。",
+            "en": "Strategy score adjustments contradict each other, showing large disagreement in marginal scoring.",
+            "ko": "전략별 점수 조정 방향이 서로 충돌해 동일 종목의 한계 평가 차이가 큽니다.",
+        },
+    }
+    localized = translations.get(key, {})
+    return localized.get(lang) or localized.get("zh") or key
+
+
+def localize_strategy_synthesis_summary(strategy_synthesis: Any, language: Optional[str]) -> str:
+    """Render a language-specific summary from the structured synthesis payload."""
+    if not isinstance(strategy_synthesis, dict):
+        return ""
+    lang = normalize_report_language(language)
+    opinion_count = strategy_synthesis.get("summary_params", {}).get("opinion_count")
+    if not isinstance(opinion_count, int):
+        opinion_count = len(strategy_synthesis.get("supporting_skills") or []) + len(strategy_synthesis.get("opposing_skills") or []) + len(strategy_synthesis.get("neutral_skills") or [])
+    final_signal = localize_strategy_signal(strategy_synthesis.get("final_signal"), lang)
+    consensus_level = localize_consensus_level(strategy_synthesis.get("consensus_level"), lang)
+    conflict_severity = localize_conflict_severity(strategy_synthesis.get("conflict_severity"), lang)
+    conflict_count = strategy_synthesis.get("conflict_count", 0)
+    if lang == "en":
+        if conflict_count:
+            return f"Strategy synthesis from {opinion_count} strategies: final signal is {final_signal}, consensus level is {consensus_level}, conflict severity is {conflict_severity}."
+        return f"Strategy synthesis from {opinion_count} strategies: final signal is {final_signal}, consensus level is {consensus_level}, with no detected conflicts."
+    if lang == "ko":
+        if conflict_count:
+            return f"{opinion_count}개 전략의 종합 판단: 종합 신호는 {final_signal}, 공감도는 {consensus_level}, 충돌 강도는 {conflict_severity}입니다."
+        return f"{opinion_count}개 전략의 종합 판단: 종합 신호는 {final_signal}, 공감도는 {consensus_level}, 감지된 전략 충돌은 없습니다."
+    if conflict_count:
+        return f"来自 {opinion_count} 个策略的综合判断：综合信号为{final_signal}，共识度为{consensus_level}，冲突强度为{conflict_severity}。"
+    return f"来自 {opinion_count} 个策略的综合判断：综合信号为{final_signal}，共识度为{consensus_level}，未检测到策略冲突。"
+
+
 def get_chip_unavailable_reason(value: Any, language: Optional[str]) -> str:
     """Return the explicit or default chip unavailable reason for rendering."""
     if not isinstance(value, dict) or not value:

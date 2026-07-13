@@ -28,6 +28,8 @@ from src.report_language import (
     localize_operation_advice,
     localize_strategy_signal,
     localize_strategy_skill,
+    localize_strategy_conflict_description,
+    localize_strategy_synthesis_summary,
     localize_trend_prediction,
     normalize_report_language,
 )
@@ -231,6 +233,8 @@ def render(
         "localize_chip_health": localize_chip_health,
         "localize_strategy_signal": localize_strategy_signal,
         "localize_strategy_skill": localize_strategy_skill,
+        "localize_strategy_conflict_description": localize_strategy_conflict_description,
+        "localize_strategy_synthesis_summary": localize_strategy_synthesis_summary,
         "localize_consensus_level": localize_consensus_level,
         "localize_conflict_severity": localize_conflict_severity,
         "signal_attribution_has_content": signal_attribution_has_content,

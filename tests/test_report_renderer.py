@@ -392,13 +392,21 @@ class TestReportRenderer(unittest.TestCase):
                     "conflict_count": 1,
                     "conflict_severity": "medium",
                     "consensus_level": "medium",
-                    "summary": "来自 2 个策略的综合判断：综合信号为买入，共识度为中，冲突强度为中。",
+                    "summary_key": "strategy_synthesis.with_conflicts",
+                    "summary_params": {
+                        "opinion_count": 2,
+                        "final_signal": "buy",
+                        "consensus_level": "medium",
+                        "conflict_severity": "medium",
+                        "conflict_count": 1,
+                    },
                     "supporting_skills": [{"skill_id": "bull_trend", "signal": "buy", "confidence": 0.8}],
                     "opposing_skills": [{"skill_id": "hot_theme", "signal": "sell", "confidence": 0.75}],
                     "conflicts": [
                         {
+                            "conflict_type": "directional_opposition",
                             "severity": "medium",
-                            "description": "趋势与题材冲突",
+                            "description_key": "strategy_conflict.directional_opposition",
                             "participants": ["bull_trend", "hot_theme"],
                         }
                     ],

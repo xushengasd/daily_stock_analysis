@@ -8,22 +8,14 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Iterable, List, Optional
 
-from src.agent.protocols import AgentOpinion, StrategyConflict, StrategyOpinion
-from src.agent.skills.defaults import extract_skill_id
-from src.report_language import (
-    localize_conflict_severity,
-    localize_consensus_level,
-    localize_strategy_signal,
-    normalize_report_language,
+from src.agent.protocols import (
+    AgentOpinion,
+    StrategyConflict,
+    StrategyOpinion,
+    normalize_strategy_signal,
+    strategy_signal_score,
 )
-
-SIGNAL_SCORES: Dict[str, float] = {
-    "strong_buy": 5.0,
-    "buy": 4.0,
-    "hold": 3.0,
-    "sell": 2.0,
-    "strong_sell": 1.0,
-}
+from src.agent.skills.defaults import extract_skill_id
 
 _SEVERITY_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
 
@@ -35,17 +27,27 @@ def strategy_opinion_from_agent_opinion(opinion: AgentOpinion) -> StrategyOpinio
     if not isinstance(key_levels, dict):
         key_levels = {}
 
+    raw_signal = opinion.signal if opinion.signal else raw_data.get("signal")
+    signal, invalid_signal, original_signal = normalize_strategy_signal(raw_signal)
+
+    normalized_raw_data = dict(raw_data)
+    normalized_raw_data["normalized_signal"] = signal
+    normalized_raw_data["original_signal"] = original_signal
+    normalized_raw_data["invalid_signal"] = invalid_signal
+
     return StrategyOpinion(
         skill_id=skill_id,
         agent_name=opinion.agent_name,
-        signal=str(opinion.signal or raw_data.get("signal") or "hold"),
+        signal=signal,
         confidence=opinion.confidence,
         reasoning=str(opinion.reasoning or raw_data.get("reasoning") or ""),
         score_adjustment=_as_float(raw_data.get("score_adjustment"), 0.0),
         conditions_met=_as_string_list(raw_data.get("conditions_met")),
         conditions_missed=_as_string_list(raw_data.get("conditions_missed")),
         key_levels=key_levels,
-        raw_data=raw_data,
+        raw_data=normalized_raw_data,
+        original_signal=original_signal,
+        invalid_signal=invalid_signal,
     )
 
 
@@ -71,8 +73,8 @@ class ConflictDetector:
 
     @staticmethod
     def _detect_directional_opposition(opinions: List[StrategyOpinion]) -> List[StrategyConflict]:
-        bullish = [op for op in opinions if SIGNAL_SCORES.get(op.signal, 3.0) >= 4.0]
-        bearish = [op for op in opinions if SIGNAL_SCORES.get(op.signal, 3.0) <= 2.0]
+        bullish = [op for op in opinions if strategy_signal_score(op.signal) >= 4.0]
+        bearish = [op for op in opinions if strategy_signal_score(op.signal) <= 2.0]
         if not bullish or not bearish:
             return []
 
@@ -84,7 +86,7 @@ class ConflictDetector:
             StrategyConflict(
                 conflict_type="directional_opposition",
                 severity=severity,
-                description="策略方向出现对立：部分策略看多，部分策略看空，综合结论需要降低确定性。",
+                description_key="strategy_conflict.directional_opposition",
                 participants=participants,
                 metadata={
                     "bullish": [op.skill_id for op in bullish],
@@ -97,7 +99,7 @@ class ConflictDetector:
 
     @staticmethod
     def _detect_wide_score_dispersion(opinions: List[StrategyOpinion]) -> List[StrategyConflict]:
-        scored = [(op, SIGNAL_SCORES.get(op.signal, SIGNAL_SCORES["hold"])) for op in opinions]
+        scored = [(op, strategy_signal_score(op.signal)) for op in opinions]
         min_score = min(score for _, score in scored)
         max_score = max(score for _, score in scored)
         spread = max_score - min_score
@@ -109,7 +111,7 @@ class ConflictDetector:
             StrategyConflict(
                 conflict_type="wide_score_dispersion",
                 severity="high" if spread >= 3.0 else "medium",
-                description="策略信号分数分布较宽，说明多策略对行情结构存在明显分歧。",
+                description_key="strategy_conflict.wide_score_dispersion",
                 participants=_unique_strings(participants),
                 metadata={"min_score": min_score, "max_score": max_score, "spread": spread},
             )
@@ -120,11 +122,11 @@ class ConflictDetector:
         opinions: List[StrategyOpinion],
         final_signal: str,
     ) -> List[StrategyConflict]:
-        final_score = SIGNAL_SCORES.get(final_signal, SIGNAL_SCORES["hold"])
+        final_score = strategy_signal_score(final_signal)
         dissenters = [
             op
             for op in opinions
-            if op.confidence >= 0.75 and abs(SIGNAL_SCORES.get(op.signal, 3.0) - final_score) >= 2.0
+            if op.confidence >= 0.75 and abs(strategy_signal_score(op.signal) - final_score) >= 2.0
         ]
         if not dissenters:
             return []
@@ -133,7 +135,7 @@ class ConflictDetector:
             StrategyConflict(
                 conflict_type="high_confidence_dissent",
                 severity="medium",
-                description="存在高置信少数派策略与综合信号明显不一致，应保留反方观点。",
+                description_key="strategy_conflict.high_confidence_dissent",
                 participants=[op.skill_id for op in dissenters],
                 metadata={
                     "final_signal": final_signal,
@@ -159,7 +161,7 @@ class ConflictDetector:
             StrategyConflict(
                 conflict_type="adjustment_contradiction",
                 severity=severity,
-                description="策略加减分方向相互矛盾，说明不同策略对同一标的的边际评分分歧较大。",
+                description_key="strategy_conflict.adjustment_contradiction",
                 participants=_unique_ids([*positive, *negative]),
                 metadata={"max_positive_adjustment": max_positive, "min_negative_adjustment": min_negative},
             )
@@ -181,11 +183,10 @@ class StrategySynthesizer:
         final_signal: str,
         weighted_confidence: float,
         conflicts: List[StrategyConflict],
-        report_language: str = "zh",
     ) -> Dict[str, Any]:
         conflict_severity = _highest_severity(conflicts)
         adjusted_confidence = self.adjust_confidence(weighted_confidence, conflict_severity)
-        final_score = SIGNAL_SCORES.get(final_signal, SIGNAL_SCORES["hold"])
+        final_score = strategy_signal_score(final_signal)
         supporting, opposing, neutral = self._group_opinions(opinions, final_score)
         consensus_level = self._consensus_level(opinions, conflicts, final_signal)
 
@@ -201,7 +202,14 @@ class StrategySynthesizer:
             "opposing_skills": opposing,
             "neutral_skills": neutral,
             "consensus_level": consensus_level,
-            "summary": self._summary(final_signal, consensus_level, conflict_severity, len(opinions), len(conflicts), report_language),
+            "summary_key": "strategy_synthesis.with_conflicts" if conflicts else "strategy_synthesis.no_conflicts",
+            "summary_params": {
+                "opinion_count": len(opinions),
+                "final_signal": final_signal,
+                "consensus_level": consensus_level,
+                "conflict_severity": conflict_severity,
+                "conflict_count": len(conflicts),
+            },
         }
 
     @staticmethod
@@ -222,7 +230,7 @@ class StrategySynthesizer:
         opposing: List[Dict[str, Any]] = []
         neutral: List[Dict[str, Any]] = []
         for op in opinions:
-            score = SIGNAL_SCORES.get(op.signal, SIGNAL_SCORES["hold"])
+            score = strategy_signal_score(op.signal)
             item = _opinion_to_item(op)
             if abs(score - final_score) < 1.0:
                 supporting.append(item)
@@ -239,57 +247,14 @@ class StrategySynthesizer:
         conflict_severity = _highest_severity(conflicts)
         if conflict_severity == "high":
             return "low"
-        final_score = SIGNAL_SCORES.get(final_signal, SIGNAL_SCORES["hold"])
-        aligned = sum(1 for op in opinions if abs(SIGNAL_SCORES.get(op.signal, 3.0) - final_score) < 1.0)
+        final_score = strategy_signal_score(final_signal)
+        aligned = sum(1 for op in opinions if abs(strategy_signal_score(op.signal) - final_score) < 1.0)
         aligned_ratio = aligned / len(opinions)
         if not conflicts and aligned_ratio >= 2 / 3:
             return "high"
         if conflict_severity == "medium" or aligned_ratio < 0.5:
             return "low" if conflict_severity == "medium" and aligned_ratio < 0.5 else "medium"
         return "medium"
-
-    @staticmethod
-    def _summary(
-        final_signal: str,
-        consensus_level: str,
-        conflict_severity: str,
-        opinion_count: int,
-        conflict_count: int,
-        report_language: str,
-    ) -> str:
-        language = normalize_report_language(report_language)
-        signal_label = localize_strategy_signal(final_signal, language)
-        consensus_label = localize_consensus_level(consensus_level, language)
-        severity_label = localize_conflict_severity(conflict_severity, language)
-        if language == "en":
-            if conflict_count:
-                return (
-                    f"Strategy synthesis from {opinion_count} strategies: final signal is {signal_label}, "
-                    f"consensus level is {consensus_label}, conflict severity is {severity_label}."
-                )
-            return (
-                f"Strategy synthesis from {opinion_count} strategies: final signal is {signal_label}, "
-                f"consensus level is {consensus_label}, with no detected conflicts."
-            )
-        if language == "ko":
-            if conflict_count:
-                return (
-                    f"{opinion_count}개 전략의 종합 판단: 종합 신호는 {signal_label}, "
-                    f"공감도는 {consensus_label}, 충돌 강도는 {severity_label}입니다."
-                )
-            return (
-                f"{opinion_count}개 전략의 종합 판단: 종합 신호는 {signal_label}, "
-                f"공감도는 {consensus_label}, 감지된 전략 충돌은 없습니다."
-            )
-        if conflict_count:
-            return (
-                f"来自 {opinion_count} 个策略的综合判断：综合信号为{signal_label}，"
-                f"共识度为{consensus_label}，冲突强度为{severity_label}。"
-            )
-        return (
-            f"来自 {opinion_count} 个策略的综合判断：综合信号为{signal_label}，"
-            f"共识度为{consensus_label}，未检测到策略冲突。"
-        )
 
 
 def _as_float(value: Any, default: float) -> float:
@@ -332,9 +297,11 @@ def _opinion_to_item(opinion: StrategyOpinion) -> Dict[str, Any]:
         "reasoning": opinion.reasoning,
         "score_adjustment": opinion.score_adjustment,
         "conditions_met": opinion.conditions_met,
-        "conditions_missed": opinion.conditions_missed,
+        "invalid_signal": opinion.invalid_signal,
     }
 
 
 def _conflict_to_dict(conflict: StrategyConflict) -> Dict[str, Any]:
-    return asdict(conflict)
+    payload = asdict(conflict)
+    payload.pop("description", None)
+    return payload

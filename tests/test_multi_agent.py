@@ -644,7 +644,7 @@ class TestStrategyAggregator(unittest.TestCase):
 
         opinion = AgentOpinion(
             agent_name="skill_bull_trend",
-            signal="buy",
+            signal="BUY",
             confidence=0.8,
             reasoning="趋势偏强",
             raw_data={
@@ -659,9 +659,36 @@ class TestStrategyAggregator(unittest.TestCase):
 
         self.assertEqual(strategy.skill_id, "bull_trend")
         self.assertEqual(strategy.signal, "buy")
+        self.assertEqual(strategy.original_signal, "BUY")
+        self.assertFalse(strategy.invalid_signal)
+        self.assertEqual(strategy.raw_data["normalized_signal"], "buy")
         self.assertEqual(strategy.score_adjustment, 12.0)
         self.assertEqual(strategy.conditions_met, ["站上均线"])
         self.assertEqual(strategy.conditions_missed, ["量能不足"])
+
+    def test_strategy_opinion_conversion_marks_unknown_signal(self):
+        from src.agent.skills.synthesis import strategy_opinion_from_agent_opinion
+
+        opinion = AgentOpinion(agent_name="skill_unknown", signal="moon", confidence=0.8)
+
+        strategy = strategy_opinion_from_agent_opinion(opinion)
+
+        self.assertEqual(strategy.signal, "hold")
+        self.assertEqual(strategy.original_signal, "moon")
+        self.assertTrue(strategy.invalid_signal)
+        self.assertTrue(strategy.raw_data["invalid_signal"])
+
+    def test_conflict_detector_detects_uppercase_buy_against_sell(self):
+        from src.agent.skills.synthesis import ConflictDetector, strategy_opinion_from_agent_opinion
+
+        opinions = [
+            strategy_opinion_from_agent_opinion(AgentOpinion(agent_name="skill_a", signal="BUY", confidence=0.8)),
+            strategy_opinion_from_agent_opinion(AgentOpinion(agent_name="skill_b", signal="sell", confidence=0.8)),
+        ]
+
+        conflicts = ConflictDetector().detect(opinions, final_signal="hold")
+
+        self.assertIn("directional_opposition", {conflict.conflict_type for conflict in conflicts})
 
     def test_conflict_detector_detects_directional_and_adjustment_conflicts(self):
         from src.agent.skills.synthesis import ConflictDetector
@@ -680,7 +707,7 @@ class TestStrategyAggregator(unittest.TestCase):
         self.assertIn("adjustment_contradiction", conflict_types)
         self.assertEqual(conflicts[0].severity, "high")
 
-    def test_strategy_synthesizer_adjusts_confidence_and_localizes_summary(self):
+    def test_strategy_synthesizer_adjusts_confidence_and_returns_language_neutral_payload(self):
         from src.agent.skills.synthesis import ConflictDetector, StrategySynthesizer
 
         opinions = [
@@ -700,30 +727,13 @@ class TestStrategyAggregator(unittest.TestCase):
         self.assertEqual(synthesis["final_signal"], "hold")
         self.assertEqual(synthesis["conflict_severity"], "high")
         self.assertAlmostEqual(synthesis["confidence"], 0.68)
-        self.assertIn("综合信号为持有", synthesis["summary"])
+        self.assertEqual(synthesis["summary_key"], "strategy_synthesis.with_conflicts")
+        self.assertNotIn("summary", synthesis)
+        self.assertEqual(synthesis["summary_params"]["final_signal"], "hold")
+        self.assertNotIn("综合信号", json.dumps(synthesis, ensure_ascii=False))
 
-        english = StrategySynthesizer().synthesize(
-            opinions,
-            weighted_score=3.0,
-            final_signal="hold",
-            weighted_confidence=0.8,
-            conflicts=conflicts,
-            report_language="en",
-        )
-        korean = StrategySynthesizer().synthesize(
-            opinions,
-            weighted_score=3.0,
-            final_signal="hold",
-            weighted_confidence=0.8,
-            conflicts=conflicts,
-            report_language="ko",
-        )
-
-        self.assertIn("final signal is Hold", english["summary"])
-        self.assertIn("conflict severity is High", english["summary"])
-        self.assertNotIn("综合信号", english["summary"])
-        self.assertIn("종합 신호는 보유", korean["summary"])
-        self.assertNotIn("综合信号", korean["summary"])
+        self.assertTrue(all("description" not in conflict for conflict in synthesis["conflicts"]))
+        self.assertIn("description_key", synthesis["conflicts"][0])
 
     def test_skill_aggregator_raw_data_contains_strategy_synthesis(self):
         from src.agent.strategies.aggregator import StrategyAggregator
