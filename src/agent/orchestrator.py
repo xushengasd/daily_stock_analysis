@@ -40,8 +40,10 @@ from src.agent.protocols import (
     AgentRunStats,
     StageResult,
     StageStatus,
+    is_valid_strategy_signal,
     normalize_decision_signal,
 )
+from src.agent.skills.defaults import is_skill_agent_name
 from src.agent.risk_override import build_risk_override_plan
 from src.agent.runner import parse_dashboard_json
 from src.agent.stock_scope import resolve_stock_scope
@@ -503,7 +505,12 @@ class AgentOrchestrator:
                     agents[index:index] = specialist_agents
                     continue
 
-            # Aggregate skill opinions before the decision agent
+            # Partition invalid skill opinions unconditionally — must run before
+            # any DecisionAgent context preparation regardless of mode.
+            if agent.agent_name == "decision":
+                self._partition_skill_opinions(ctx)
+
+            # Aggregate valid skill opinions — only when skill agents actually ran.
             if agent.agent_name == "decision" and getattr(self, "_skill_agent_names", None):
                 self._aggregate_skill_opinions(ctx)
 
@@ -708,6 +715,58 @@ class AgentOrchestrator:
     # Skill aggregation
     # -----------------------------------------------------------------
 
+    def _partition_skill_opinions(self, ctx: AgentContext) -> None:
+        """Split skill opinions into Evidence Chain (valid) and Diagnostics (invalid).
+
+        Per docs/multi-strategy-contract.md §"Evidence Chain 与 Diagnostics 分离":
+        this is the ONLY partition point. After this method, ctx.opinions
+        contains only valid skill opinions; invalid ones are moved to
+        ctx.meta["invalid_opinions"] and never re-enter downstream evidence.
+        """
+        kept: List = []
+        invalid_bucket: List[Dict[str, Any]] = ctx.meta.setdefault("invalid_opinions", [])
+        if not isinstance(invalid_bucket, list):
+            invalid_bucket = []
+            ctx.meta["invalid_opinions"] = invalid_bucket
+
+        for op in ctx.opinions:
+            if not is_skill_agent_name(op.agent_name):
+                kept.append(op)
+                continue
+
+            raw_signal = op.signal if op.signal else (
+                op.raw_data.get("signal") if isinstance(op.raw_data, dict) else None
+            )
+
+            if raw_signal is None or (isinstance(raw_signal, str) and not raw_signal.strip()):
+                reason = "missing_signal"
+                raw_display = raw_signal if isinstance(raw_signal, str) else None
+                is_valid = False
+            elif is_valid_strategy_signal(raw_signal):
+                is_valid = True
+                reason = ""
+                raw_display = str(raw_signal)
+            else:
+                is_valid = False
+                reason = "unrecognized_signal"
+                raw_display = str(raw_signal)
+
+            if is_valid:
+                kept.append(op)
+            else:
+                invalid_bucket.append({
+                    "agent_name": op.agent_name,
+                    "raw_signal": raw_display,
+                    "confidence": op.confidence,
+                    "reason": reason,
+                })
+                logger.info(
+                    "[Orchestrator] invalid skill opinion moved to diagnostics: agent=%s raw_signal=%r reason=%s",
+                    op.agent_name, raw_display, reason,
+                )
+
+        ctx.opinions = kept
+
     def _aggregate_skill_opinions(self, ctx: AgentContext) -> None:
         """Run SkillAggregator to produce a consensus opinion.
 
@@ -724,6 +783,9 @@ class AgentOrchestrator:
                     "signal": consensus.signal,
                     "confidence": consensus.confidence,
                     "reasoning": consensus.reasoning,
+                    "raw_data": consensus.raw_data,
+                    "strategy_synthesis": consensus.raw_data.get("strategy_synthesis"),
+                    "conflicts": consensus.raw_data.get("conflicts", []),
                 })
                 logger.info(
                     "[Orchestrator] skill consensus: signal=%s confidence=%.2f",
@@ -1084,6 +1146,10 @@ class AgentOrchestrator:
         if data_perspective:
             dashboard_block["data_perspective"] = data_perspective
 
+        strategy_synthesis = self._collect_strategy_synthesis(ctx, dashboard_block)
+        if strategy_synthesis:
+            dashboard_block["strategy_synthesis"] = strategy_synthesis
+
         dashboard_block["core_conclusion"] = core
         dashboard_block["intelligence"] = intelligence
         dashboard_block["battle_plan"] = battle
@@ -1115,6 +1181,33 @@ class AgentOrchestrator:
         payload["risk_warning"] = risk_warning
         payload["dashboard"] = dashboard_block
         return payload
+
+    def _collect_strategy_synthesis(
+        self,
+        ctx: AgentContext,
+        dashboard_block: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        # Deterministic synthesis from skill_consensus is the authoritative source
+        consensus_data = ctx.get_data("skill_consensus")
+        if isinstance(consensus_data, dict):
+            synthesis = consensus_data.get("strategy_synthesis")
+            if isinstance(synthesis, dict) and synthesis:
+                return synthesis
+            raw_data = consensus_data.get("raw_data")
+            if isinstance(raw_data, dict):
+                synthesis = raw_data.get("strategy_synthesis")
+                if isinstance(synthesis, dict) and synthesis:
+                    return synthesis
+
+        # Fallback: scan opinions
+        for opinion in reversed(ctx.opinions):
+            if getattr(opinion, "agent_name", "") != "skill_consensus":
+                continue
+            raw_data = opinion.raw_data if isinstance(opinion.raw_data, dict) else {}
+            synthesis = raw_data.get("strategy_synthesis")
+            if isinstance(synthesis, dict) and synthesis:
+                return synthesis
+        return None
 
     def _collect_key_levels(
         self,
