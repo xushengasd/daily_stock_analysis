@@ -204,6 +204,7 @@ class StrategySynthesizer:
         weighted_confidence: float,
         conflicts: List[StrategyConflict],
         insufficient_evidence: bool = False,
+        invalid_count: int = 0,
     ) -> Dict[str, Any]:
         conflict_severity = _highest_severity(conflicts)
         adjusted_confidence = self.adjust_confidence(weighted_confidence, conflict_severity)
@@ -217,6 +218,9 @@ class StrategySynthesizer:
         )
 
         valid_opinions = [op for op in opinions if not op.invalid_signal]
+        # When called directly (e.g. unit tests), infer invalid_count from the opinions
+        # list itself. In the E2E path the explicit partition value takes precedence.
+        invalid_count = max(invalid_count, sum(1 for op in opinions if op.invalid_signal))
 
         return {
             "final_signal": final_signal,
@@ -232,8 +236,8 @@ class StrategySynthesizer:
             "summary_key": "strategy_synthesis.with_conflicts" if conflicts else "strategy_synthesis.no_conflicts",
             "summary_params": {
                 "opinion_count": len(valid_opinions),
-                "total_opinion_count": len(opinions),
-                "invalid_opinion_count": len(opinions) - len(valid_opinions),
+                "total_opinion_count": len(valid_opinions) + invalid_count,
+                "invalid_opinion_count": invalid_count,
                 "final_signal": final_signal,
                 "consensus_level": consensus_level,
                 "conflict_severity": conflict_severity,

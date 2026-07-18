@@ -44,6 +44,7 @@ from src.agent.protocols import (
     normalize_decision_signal,
 )
 from src.agent.skills.defaults import is_skill_agent_name
+from src.agent.skills.engine import EvidencePartition, StrategyEngine, StrategyResult, StrategyResultStatus
 from src.agent.risk_override import build_risk_override_plan
 from src.agent.runner import parse_dashboard_json
 from src.agent.stock_scope import resolve_stock_scope
@@ -106,6 +107,7 @@ class AgentOrchestrator:
         self.mode = normalized_mode if normalized_mode in VALID_MODES else "standard"
         self.skill_manager = skill_manager
         self.config = config
+        self.strategy_engine = StrategyEngine()
 
     def _get_timeout_seconds(self) -> int:
         """Return the pipeline timeout in seconds.
@@ -449,6 +451,8 @@ class AgentOrchestrator:
                         elapsed=round(elapsed_s, 2),
                         timeout=timeout_s,
                     ))
+                if ctx is not None:
+                    self._apply_partition_fallback(ctx)
                 return self._build_timeout_result(
                     stats,
                     all_tool_calls,
@@ -480,6 +484,8 @@ class AgentOrchestrator:
                             "remaining budget"
                         ),
                     ))
+                if ctx is not None:
+                    self._apply_partition_fallback(ctx)
                 return self._build_budget_skip_result(
                     stats,
                     all_tool_calls,
@@ -505,14 +511,8 @@ class AgentOrchestrator:
                     agents[index:index] = specialist_agents
                     continue
 
-            # Partition invalid skill opinions unconditionally — must run before
-            # any DecisionAgent context preparation regardless of mode.
             if agent.agent_name == "decision":
-                self._partition_skill_opinions(ctx)
-
-            # Aggregate valid skill opinions — only when skill agents actually ran.
-            if agent.agent_name == "decision" and getattr(self, "_skill_agent_names", None):
-                self._aggregate_skill_opinions(ctx)
+                self._run_strategy_engine(ctx)
 
             if agent.agent_name == "decision":
                 self._prepare_decision_context(ctx)
@@ -559,6 +559,7 @@ class AgentOrchestrator:
                         elapsed=round(elapsed_s, 2),
                         timeout=timeout_s,
                     ))
+                self._apply_partition_fallback(ctx)
                 return self._build_timeout_result(
                     stats,
                     all_tool_calls,
@@ -800,6 +801,54 @@ class AgentOrchestrator:
         """Compatibility wrapper for legacy tests/imports."""
         self._aggregate_skill_opinions(ctx)
 
+    def _run_strategy_engine(self, ctx: AgentContext) -> None:
+        """Run the full skill pipeline via StrategyEngine and update ctx.
+
+        Replaces the old two-step _partition_skill_opinions + _aggregate_skill_opinions
+        calls. The engine is the single authoritative owner of strategy_synthesis.
+        """
+        result = self.strategy_engine.process(ctx.opinions)
+
+        ctx.meta["invalid_opinions"] = list(result.invalid_records)
+        ctx.opinions = list(result.non_skill_opinions) + list(result.valid_skill_opinions)
+        if result.consensus_opinion is not None:
+            ctx.opinions.append(result.consensus_opinion)
+
+        if result.skill_consensus_data is not None:
+            ctx.set_data("skill_consensus", result.skill_consensus_data)
+
+        if result.status == StrategyResultStatus.CONSENSUS:
+            logger.info(
+                "[Orchestrator] strategy engine: signal=%s confidence=%.2f",
+                result.consensus_opinion.signal,
+                result.consensus_opinion.confidence,
+            )
+        elif result.status == StrategyResultStatus.NO_CONSENSUS:
+            logger.info(
+                "[Orchestrator] strategy engine: NO_CONSENSUS invalid_count=%d",
+                result.invalid_count,
+            )
+        else:
+            logger.info("[Orchestrator] strategy engine: NO_SKILLS")
+
+    def _apply_partition_fallback(self, ctx: AgentContext) -> None:
+        """Partition skill opinions for timeout/budget-skip early-exit paths.
+
+        Does not aggregate — only ensures invalid diagnostics are preserved
+        in ctx.meta["invalid_opinions"] before the pipeline bails out.
+        Idempotent: skips if the engine already ran fully (skill_consensus present).
+        """
+        if ctx.get_data("skill_consensus") is not None:
+            return
+
+        partition = self.strategy_engine.partition_only(ctx.opinions)
+        ctx.opinions = list(partition.non_skill_opinions) + list(partition.valid_skill_opinions)
+        invalid_bucket = ctx.meta.get("invalid_opinions")
+        if not isinstance(invalid_bucket, list):
+            invalid_bucket = []
+        invalid_bucket.extend(partition.invalid_records)
+        ctx.meta["invalid_opinions"] = invalid_bucket
+
     def _prepare_decision_context(self, ctx: AgentContext) -> None:
         """Populate low-sensitivity summaries consumed by DecisionAgent."""
         ctx.meta["agent_disagreement_summary"] = build_agent_disagreement_summary(
@@ -1000,6 +1049,8 @@ class AgentOrchestrator:
             dashboard_block = {}
         else:
             dashboard_block = dict(dashboard_block)
+            # Strip any LLM-written strategy_synthesis — StrategyEngine is the sole writer.
+            dashboard_block.pop("strategy_synthesis", None)
 
         core = dashboard_block.get("core_conclusion")
         if not isinstance(core, dict):

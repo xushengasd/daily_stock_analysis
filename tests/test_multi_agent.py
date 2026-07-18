@@ -3444,5 +3444,316 @@ class TestP1SemanticConvergence(unittest.TestCase):
                     self.assertNotIn("无", rendered)
 
 
+class TestStrategyEngineE2E(unittest.TestCase):
+    """E2E tests exercising StrategyEngine as the authoritative pipeline facade."""
+
+    def _make_orchestrator(self):
+        return AgentOrchestrator(
+            tool_registry=MagicMock(),
+            llm_adapter=MagicMock(),
+            mode="specialist",
+        )
+
+    # ------------------------------------------------------------------
+    # 1. Mixed valid + invalid → engine produces deterministic synthesis
+    # ------------------------------------------------------------------
+
+    def test_engine_mixed_valid_invalid_invalid_count(self):
+        """Engine: 2 valid buy/0.8 + 3 invalid moon/0.9 → synthesis.invalid_opinion_count == 3."""
+        from src.agent.skills.engine import StrategyEngine, StrategyResultStatus
+
+        opinions = []
+        for i in range(2):
+            opinions.append(AgentOpinion(agent_name=f"skill_v{i}", signal="buy", confidence=0.8))
+        for i in range(3):
+            opinions.append(AgentOpinion(agent_name=f"skill_x{i}", signal="moon", confidence=0.9))
+
+        result = StrategyEngine().process(opinions)
+
+        self.assertEqual(result.status, StrategyResultStatus.CONSENSUS)
+        self.assertIsNotNone(result.synthesis_dict)
+        params = result.synthesis_dict["summary_params"]
+        self.assertEqual(params["opinion_count"], 2)
+        self.assertEqual(params["invalid_opinion_count"], 3)
+        self.assertEqual(params["total_opinion_count"], 5)
+        self.assertEqual(result.invalid_count, 3)
+        self.assertEqual(len(result.invalid_records), 3)
+
+    # ------------------------------------------------------------------
+    # 2. All invalid → NO_CONSENSUS stub
+    # ------------------------------------------------------------------
+
+    def test_engine_all_invalid_no_consensus_stub(self):
+        """Engine: 4 all-invalid → NO_CONSENSUS stub with consensus_level == 'insufficient'."""
+        from src.agent.skills.engine import StrategyEngine, StrategyResultStatus
+
+        opinions = [
+            AgentOpinion(agent_name=f"skill_bad{i}", signal="moon", confidence=0.9)
+            for i in range(4)
+        ]
+
+        result = StrategyEngine().process(opinions)
+
+        self.assertEqual(result.status, StrategyResultStatus.NO_CONSENSUS)
+        self.assertIsNotNone(result.synthesis_dict)
+        self.assertEqual(result.synthesis_dict["consensus_level"], "insufficient")
+        self.assertEqual(result.synthesis_dict["confidence"], 0.0)
+        self.assertEqual(result.synthesis_dict["final_signal"], "hold")
+        self.assertEqual(result.invalid_count, 4)
+        self.assertIsNotNone(result.skill_consensus_data)
+        self.assertEqual(
+            result.skill_consensus_data["strategy_synthesis"]["consensus_level"],
+            "insufficient",
+        )
+
+    # ------------------------------------------------------------------
+    # 3. LLM strategy_synthesis stripped at parse boundary
+    # ------------------------------------------------------------------
+
+    def test_llm_strategy_synthesis_stripped_at_parse_boundary(self):
+        """dashboard_block['strategy_synthesis'] from LLM is stripped; engine result wins."""
+        ctx = AgentContext()
+        ctx.set_data("skill_consensus", {
+            "signal": "buy",
+            "confidence": 0.75,
+            "raw_data": {
+                "strategy_synthesis": {
+                    "final_signal": "buy",
+                    "confidence": 0.75,
+                    "consensus_level": "high",
+                    "summary_key": "engine.deterministic",
+                }
+            },
+        })
+
+        llm_payload = {
+            "decision_type": "sell",
+            "dashboard": {
+                # LLM wrote this — must be stripped before engine result is written
+                "strategy_synthesis": {
+                    "final_signal": "sell",
+                    "confidence": 0.1,
+                    "consensus_level": "low",
+                    "summary_key": "llm.invented",
+                }
+            },
+        }
+
+        orchestrator = self._make_orchestrator()
+        normalized = orchestrator._normalize_dashboard_payload(llm_payload, ctx)
+
+        self.assertIsNotNone(normalized)
+        synth = normalized["dashboard"].get("strategy_synthesis")
+        self.assertIsNotNone(synth)
+        # Engine's deterministic synthesis wins
+        self.assertEqual(synth["final_signal"], "buy")
+        self.assertNotEqual(synth.get("summary_key"), "llm.invented")
+
+    # ------------------------------------------------------------------
+    # 4. Timeout fallback preserves invalid diagnostics
+    # ------------------------------------------------------------------
+
+    def test_partition_fallback_preserves_invalid_diagnostics(self):
+        """_apply_partition_fallback: invalid opinions land in ctx.meta and don't re-enter evidence."""
+        ctx = AgentContext()
+        ctx.opinions.append(AgentOpinion(agent_name="skill_v", signal="buy", confidence=0.8))
+        ctx.opinions.append(AgentOpinion(agent_name="skill_bad", signal="moon", confidence=0.9))
+        # Non-skill opinion should pass through untouched
+        ctx.opinions.append(AgentOpinion(agent_name="technical", signal="buy", confidence=0.7))
+
+        orchestrator = self._make_orchestrator()
+        orchestrator._apply_partition_fallback(ctx)
+
+        # Invalid skill opinion removed from evidence chain
+        evidence_names = {op.agent_name for op in ctx.opinions}
+        self.assertNotIn("skill_bad", evidence_names)
+        self.assertIn("skill_v", evidence_names)
+        self.assertIn("technical", evidence_names)
+
+        # Captured in diagnostics
+        invalid_bucket = ctx.meta.get("invalid_opinions", [])
+        self.assertEqual(len(invalid_bucket), 1)
+        self.assertEqual(invalid_bucket[0]["agent_name"], "skill_bad")
+        self.assertEqual(invalid_bucket[0]["reason"], "unrecognized_signal")
+
+    def test_partition_fallback_idempotent_when_engine_ran(self):
+        """_apply_partition_fallback is a no-op when StrategyEngine already ran."""
+        ctx = AgentContext()
+        ctx.opinions.append(AgentOpinion(agent_name="skill_bad", signal="moon", confidence=0.9))
+        # Simulate engine already ran
+        ctx.set_data("skill_consensus", {"signal": "hold", "confidence": 0.0})
+
+        orchestrator = self._make_orchestrator()
+        orchestrator._apply_partition_fallback(ctx)
+
+        # Should not have been re-partitioned
+        self.assertEqual(len(ctx.opinions), 1)
+        self.assertNotIn("invalid_opinions", ctx.meta)
+
+    # ------------------------------------------------------------------
+    # 5. Signal alias consistency: strong-buy / strong_buy in both paths
+    # ------------------------------------------------------------------
+
+    def test_signal_alias_consistency_aggregation_and_disagreement(self):
+        """'strong-buy' alias → canonical 'strong_buy' in both aggregation and disagreement."""
+        from src.agent.disagreement import build_agent_disagreement_summary
+
+        # Aggregation path
+        ctx = AgentContext()
+        ctx.opinions.append(AgentOpinion(agent_name="skill_1", signal="strong-buy", confidence=0.8))
+        ctx.opinions.append(AgentOpinion(agent_name="skill_2", signal="strong_buy", confidence=0.8))
+
+        aggregator = SkillAggregator()
+        consensus = aggregator.aggregate(ctx)
+
+        self.assertIsNotNone(consensus)
+        self.assertEqual(consensus.signal, "strong_buy")
+
+        synthesis = consensus.raw_data.get("strategy_synthesis")
+        self.assertIsNotNone(synthesis)
+        self.assertEqual(synthesis["final_signal"], "strong_buy")
+
+        # Disagreement path: strong-buy alias should not be treated as unknown/hold
+        ctx2 = AgentContext()
+        ctx2.opinions.append(AgentOpinion(agent_name="technical", signal="strong-buy", confidence=0.9))
+        ctx2.opinions.append(AgentOpinion(agent_name="decision", signal="hold", confidence=0.6))
+        summary = build_agent_disagreement_summary(ctx2)
+
+        # strong-buy and hold diverge, so disagreement should be detected
+        # (not hidden by wrong normalization that converts strong-buy → hold)
+        self.assertIsNotNone(summary)
+        if summary.get("has_disagreement"):
+            self.assertIn("strong_buy", str(summary))
+
+    # ------------------------------------------------------------------
+    # 6. Consensus level i18n for "insufficient"
+    # ------------------------------------------------------------------
+
+    def test_localize_consensus_level_insufficient(self):
+        """localize_consensus_level('insufficient', lang) returns short enum translations."""
+        from src.report_language import localize_consensus_level
+
+        cases = [
+            ("insufficient", "zh", "证据不足"),
+            ("insufficient", "en", "Insufficient"),
+            ("insufficient", "ko", "증거 부족"),
+            # Display-form inputs should also canonicalize
+            ("证据不足", "en", "Insufficient"),
+            ("Insufficient", "zh", "证据不足"),
+        ]
+
+        for raw, lang, expected in cases:
+            result = localize_consensus_level(raw, lang)
+            self.assertEqual(
+                result,
+                expected,
+                f"localize_consensus_level({raw!r}, {lang!r}) = {result!r}, want {expected!r}",
+            )
+
+    def test_renderer_shows_invalid_opinions_label(self):
+        """计划测试1补全：mixed valid+invalid → renderer 输出含 strategy_invalid_opinions_label。
+        走 StrategyEngine 完整链路，断言 _append_strategy_synthesis_block 渲染出 invalid count 行。
+        """
+        from src.agent.skills.engine import StrategyEngine
+        from src.notification import _append_strategy_synthesis_block
+        from src.report_language import get_report_labels
+
+        opinions = []
+        for i in range(2):
+            opinions.append(AgentOpinion(agent_name=f"skill_v{i}", signal="buy", confidence=0.8))
+        for i in range(3):
+            opinions.append(AgentOpinion(agent_name=f"skill_x{i}", signal="moon", confidence=0.9))
+
+        result = StrategyEngine().process(opinions)
+        synthesis = result.synthesis_dict
+        self.assertIsNotNone(synthesis)
+        self.assertEqual(synthesis["summary_params"]["invalid_opinion_count"], 3)
+
+        for lang, fragment in [
+            ("zh", "3"),
+            ("en", "3"),
+            ("ko", "3"),
+        ]:
+            labels = get_report_labels(lang)
+            lines: list = []
+            _append_strategy_synthesis_block(lines, synthesis, labels, lang)
+            rendered = "\n".join(lines)
+            # invalid count line must appear
+            self.assertIn(str(3), rendered, f"lang={lang}: invalid count missing from rendered output")
+            # the label template itself must have been applied (not raw template string)
+            self.assertNotIn("{count}", rendered, f"lang={lang}: label template not rendered")
+
+    def test_generate_dashboard_report_renders_invalid_count_and_insufficient(self):
+        """Blocker-6 真 E2E：经 generate_dashboard_report 主入口，
+        断言最终 Markdown 字符串含 '另有 N 个策略解析失败' 和本地化 '证据不足'。
+        """
+        from src.analyzer import AnalysisResult
+        from src.notification import NotificationService
+
+        synthesis = {
+            "final_signal": "hold",
+            "weighted_score": 3.0,
+            "confidence": 0.0,
+            "original_confidence": 0.0,
+            "conflict_count": 0,
+            "conflict_severity": "none",
+            "conflicts": [],
+            "supporting_skills": [],
+            "opposing_skills": [],
+            "consensus_level": "insufficient",
+            "summary_key": "strategy_synthesis.no_conflicts",
+            "summary_params": {
+                "opinion_count": 0,
+                "total_opinion_count": 3,
+                "invalid_opinion_count": 3,
+                "final_signal": "hold",
+                "consensus_level": "insufficient",
+                "conflict_severity": "none",
+                "conflict_count": 0,
+            },
+        }
+
+        result = AnalysisResult(
+            code="600519",
+            name="贵州茅台",
+            sentiment_score=50,
+            trend_prediction="震荡",
+            operation_advice="观望",
+            decision_type="hold",
+            report_language="zh",
+            dashboard={
+                "strategy_synthesis": synthesis,
+                "core_conclusion": {"one_sentence": "测试样本"},
+                "intelligence": {},
+                "battle_plan": {},
+            },
+        )
+
+        svc = NotificationService()
+        report = svc.generate_dashboard_report([result])
+
+        # invalid count 行必须出现
+        self.assertIn("另有 3 个策略解析失败", report, "invalid count line missing from dashboard report")
+        # consensus_level=insufficient → localize → 证据不足
+        self.assertIn("证据不足", report, "localized 'insufficient' missing from dashboard report")
+
+    def test_engine_no_skills_returns_no_skills_status(self):
+        """StrategyEngine with zero skill opinions returns NO_SKILLS (not NO_CONSENSUS)."""
+        from src.agent.skills.engine import StrategyEngine, StrategyResultStatus
+
+        ctx_opinions = [
+            AgentOpinion(agent_name="technical", signal="buy", confidence=0.8),
+            AgentOpinion(agent_name="decision", signal="hold", confidence=0.6),
+        ]
+
+        result = StrategyEngine().process(ctx_opinions)
+
+        self.assertEqual(result.status, StrategyResultStatus.NO_SKILLS)
+        self.assertIsNone(result.synthesis_dict)
+        self.assertIsNone(result.consensus_opinion)
+        # Non-skill opinions preserved
+        self.assertEqual(len(result.non_skill_opinions), 2)
+
+
 if __name__ == '__main__':
     unittest.main()

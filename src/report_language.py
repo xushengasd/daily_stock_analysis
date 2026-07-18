@@ -163,12 +163,17 @@ _CONSENSUS_LEVEL_CANONICAL_MAP = {
     "中": "medium",
     "low": "low",
     "低": "low",
+    "insufficient": "insufficient",
+    "证据不足": "insufficient",
+    "Insufficient": "insufficient",
+    "증거 부족": "insufficient",
 }
 
 _CONSENSUS_LEVEL_TRANSLATIONS = {
     "high": {"zh": "高", "en": "High", "ko": "높음"},
     "medium": {"zh": "中", "en": "Medium", "ko": "보통"},
     "low": {"zh": "低", "en": "Low", "ko": "낮음"},
+    "insufficient": {"zh": "证据不足", "en": "Insufficient", "ko": "증거 부족"},
 }
 
 _CONFLICT_SEVERITY_CANONICAL_MAP = {
@@ -488,7 +493,6 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "strategy_supporting_skills_label": "支持策略",
         "strategy_opposing_skills_label": "反方策略",
         "strategy_invalid_opinions_label": "另有 {count} 个策略解析失败",
-        "strategy_insufficient_evidence_label": "证据不足（观望）",
     },
     "en": {
         "dashboard_title": "Decision Dashboard",
@@ -623,7 +627,6 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "strategy_supporting_skills_label": "Supporting Strategies",
         "strategy_opposing_skills_label": "Opposing Strategies",
         "strategy_invalid_opinions_label": "{count} additional strategies failed to produce valid signals",
-        "strategy_insufficient_evidence_label": "Insufficient evidence (hold)",
     },
     "ko": {
         "dashboard_title": "결정 대시보드",
@@ -758,7 +761,6 @@ _REPORT_LABELS: Dict[str, Dict[str, str]] = {
         "strategy_supporting_skills_label": "지지 전략",
         "strategy_opposing_skills_label": "반대 전략",
         "strategy_invalid_opinions_label": "추가로 {count}개 전략이 유효한 신호를 생성하지 못했습니다",
-        "strategy_insufficient_evidence_label": "증거 부족 (관망)",
     },
 }
 
@@ -1125,23 +1127,17 @@ def localize_strategy_synthesis_summary(strategy_synthesis: Any, language: Optio
             base = f"Strategy synthesis from {opinion_count} strategies: final signal is {final_signal}, consensus level is {consensus_level}, conflict severity is {conflict_severity}."
         else:
             base = f"Strategy synthesis from {opinion_count} strategies: final signal is {final_signal}, consensus level is {consensus_level}, with no detected conflicts."
-        if invalid_count:
-            base += f" Additionally, {invalid_count} strategy opinion(s) were invalid or unparseable."
         return base
     if lang == "ko":
         if conflict_count:
             base = f"{opinion_count}개 전략의 종합 판단: 종합 신호는 {final_signal}, 공감도는 {consensus_level}, 충돌 강도는 {conflict_severity}입니다."
         else:
             base = f"{opinion_count}개 전략의 종합 판단: 종합 신호는 {final_signal}, 공감도는 {consensus_level}, 감지된 전략 충돌은 없습니다."
-        if invalid_count:
-            base += f" 추가로 {invalid_count}개 전략 의견이 유효하지 않거나 해석 실패했습니다."
         return base
     if conflict_count:
         base = f"来自 {opinion_count} 个策略的综合判断：综合信号为{final_signal}，共识度为{consensus_level}，冲突强度为{conflict_severity}。"
     else:
         base = f"来自 {opinion_count} 个策略的综合判断：综合信号为{final_signal}，共识度为{consensus_level}，未检测到策略冲突。"
-    if invalid_count:
-        base += f"另有 {invalid_count} 个策略观点无效或解析失败。"
     return base
 
 

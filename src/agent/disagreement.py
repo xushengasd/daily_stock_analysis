@@ -106,12 +106,9 @@ def _summarize_opinion(agent_name: str, signal: Any, confidence: Any) -> Dict[st
 
 
 def _normalize_signal(signal: Any) -> str:
-    if not isinstance(signal, str):
-        return "hold"
-    normalized = signal.strip().lower()
-    if normalized in _BULLISH_SIGNALS or normalized in _BEARISH_SIGNALS or normalized == "hold":
-        return normalized
-    return "hold"
+    from src.agent.protocols import normalize_strategy_signal
+    canonical, invalid, _ = normalize_strategy_signal(signal)
+    return "hold" if invalid else canonical
 
 
 def _effective_signal(agent_name: str, signal: Any) -> str:
