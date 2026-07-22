@@ -118,6 +118,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+    outputs:
+      review_available: ${{ steps.review-result.outputs.available }}
 
     steps:
       - name: 📥 检出可信主分支脚本
@@ -154,13 +156,27 @@ jobs:
           CI_HAS_PY_CHANGES: ${{ needs.security-check.outputs.has_py_changes }}
         run: python main-scripts/.github/scripts/ai_review.py
 
+      - name: 🔎 检查 AI 审查结果
+        id: review-result
+        if: always()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const available = fs.existsSync('ai_review_result.txt') &&
+              fs.statSync('ai_review_result.txt').size > 0;
+            core.setOutput('available', String(available));
+            if (!available) {
+              core.warning('AI review completed without a report artifact; downstream reporting will mark it unavailable.');
+            }
+
       - name: 📤 上传审查结果
         uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && steps.review-result.outputs.available == 'true'
         with:
           name: ai-review-result
           path: ai_review_result.txt
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   # ==================== PR 标签自动分类（仅 GitHub API）====================
   labeler:
@@ -220,7 +236,11 @@ jobs:
                 });
                 console.log(`Added labels: ${Array.from(labels).join(', ')}`);
               } catch (error) {
-                console.log(`Failed to add labels: ${error.message}`);
+                if (error.status === 403) {
+                  core.warning(`PR labels were not updated because this workflow token is read-only: ${error.message}`);
+                } else {
+                  throw error;
+                }
               }
             }
 
@@ -239,8 +259,7 @@ jobs:
     steps:
       - name: 📥 下载 AI 审查结果
         uses: actions/download-artifact@v7
-        if: needs.ai-review.result == 'success'
-        continue-on-error: true
+        if: needs.ai-review.outputs.review_available == 'true'
         with:
           name: ai-review-result
           path: .
@@ -250,6 +269,7 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           AI_REVIEW_RESULT: ${{ needs.ai-review.result }}
+          AI_REVIEW_AVAILABLE: ${{ needs.ai-review.outputs.review_available }}
         with:
           script: |
             const fs = require('fs');
@@ -285,8 +305,9 @@ jobs:
               comment.user.type === 'Bot' && comment.body.includes('## 🤖 自动审查报告')
             );
 
-            const aiStatus = process.env.AI_REVIEW_RESULT === 'success' ? '✅ 已完成' :
-              process.env.AI_REVIEW_RESULT === 'skipped' ? '⏭️ 跳过' : '⚠️ 失败';
+            const aiStatus = process.env.AI_REVIEW_AVAILABLE === 'true' ? '✅ 已完成' :
+              process.env.AI_REVIEW_RESULT === 'skipped' ? '⏭️ 跳过' :
+              process.env.AI_REVIEW_RESULT === 'failure' ? '⚠️ 失败' : '⚠️ 未生成结果';
             let report = `## 🤖 自动审查报告
 
             | 项目 | 结果 |
@@ -321,18 +342,31 @@ jobs:
             > 💡 **提示**: 请同时核对独立 CI 结果，并遵循项目代码规范。
             `;
 
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: report
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pullNumber,
-                body: report
-              });
+            await core.summary.addRaw(report).write();
+
+            try {
+              if (botComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: report
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullNumber,
+                  body: report
+                });
+              }
+            } catch (error) {
+              if (error.status === 403) {
+                core.warning(
+                  `PR comment was not published because this workflow token is read-only; ` +
+                  `the report remains available in the job summary: ${error.message}`
+                );
+              } else {
+                throw error;
+              }
             }

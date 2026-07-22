@@ -1,5 +1,7 @@
 import importlib.util
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,3 +108,41 @@ def test_delegated_ci_context_does_not_claim_success(monkeypatch):
 
     assert 'backend-gate' in context
     assert '不假设并行 CI 已通过' in context
+
+
+def test_openai_fallback_uses_defaults_for_empty_optional_vars(monkeypatch):
+    captured = {}
+
+    class FakeCompletions:
+        @staticmethod
+        def create(**kwargs):
+            captured['model'] = kwargs['model']
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='review'))]
+            )
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key, base_url):
+            captured['api_key'] = api_key
+            captured['base_url'] = base_url
+            self.chat = SimpleNamespace(
+                completions=FakeCompletions(),
+            )
+
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+    monkeypatch.setenv('OPENAI_BASE_URL', '')
+    monkeypatch.setenv('OPENAI_MODEL', '')
+    monkeypatch.setitem(
+        sys.modules,
+        'openai',
+        SimpleNamespace(OpenAI=FakeOpenAI),
+    )
+
+    result = ai_review.review_with_openai('prompt')
+
+    assert result == 'review'
+    assert captured == {
+        'api_key': 'test-key',
+        'base_url': 'https://api.openai.com/v1',
+        'model': 'gpt-4o-mini',
+    }
