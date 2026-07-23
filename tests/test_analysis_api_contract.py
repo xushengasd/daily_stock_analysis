@@ -161,7 +161,145 @@ def _market_phase_summary() -> dict:
     }
 
 
+def _strategy_synthesis_payload() -> dict:
+    return {
+        "schema_version": "strategy-synthesis-v1",
+        "final_signal": "hold",
+        "weighted_score": 3.0,
+        "confidence": 0.62,
+        "original_confidence": 0.8,
+        "conflict_count": 1,
+        "conflict_severity": "high",
+        "conflicts": [
+            {
+                "conflict_type": "directional_opposition",
+                "severity": "high",
+                "description_key": "strategy_conflict.directional_opposition",
+                "participants": ["bull", "bear"],
+                "metadata": {},
+            }
+        ],
+        "supporting_skills": [],
+        "opposing_skills": [
+            {
+                "skill_id": "bear",
+                "agent_name": "skill_bear",
+                "signal": "sell",
+                "confidence": 0.8,
+                "applied_weight": 0.4,
+                "reasoning": "bear case",
+                "score_adjustment": 0,
+                "conditions_met": [],
+                "invalid_signal": False,
+            }
+        ],
+        "signal_distribution": {
+            "bullish": {"count": 1, "weight_share": 0.5},
+            "neutral": {"count": 0, "weight_share": 0.0},
+            "bearish": {"count": 1, "weight_share": 0.5},
+        },
+        "primary_dissent": {
+            "skill_id": "bear",
+            "agent_name": "skill_bear",
+            "signal": "sell",
+            "confidence": 0.8,
+            "applied_weight": 0.4,
+            "reasoning": "bear case",
+            "score_adjustment": 0,
+            "conditions_met": [],
+            "invalid_signal": False,
+        },
+        "consensus_level": "low",
+        "summary_key": "strategy_synthesis.with_conflicts",
+        "summary_params": {
+            "opinion_count": 2,
+            "total_opinion_count": 2,
+            "invalid_opinion_count": 0,
+            "final_signal": "hold",
+            "consensus_level": "low",
+            "conflict_severity": "high",
+            "conflict_count": 1,
+        },
+    }
+
+
 class AnalysisApiContractTestCase(unittest.TestCase):
+    def test_in_memory_report_projection_reads_top_level_dashboard(self) -> None:
+        if analysis_endpoint_module is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        report = analysis_endpoint_module._ensure_report_action_fields(
+            {
+                "meta": {},
+                "summary": {},
+                "dashboard": {"strategy_synthesis": _strategy_synthesis_payload()},
+            }
+        )
+
+        self.assertEqual(
+            report["details"]["strategy_synthesis"]["schema_version"],
+            "strategy-synthesis-v1",
+        )
+        self.assertNotIn(
+            "metadata",
+            report["details"]["strategy_synthesis"]["conflicts"][0],
+        )
+
+    def test_build_analysis_report_projects_strategy_synthesis(self) -> None:
+        if _build_analysis_report is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        synthesis = _strategy_synthesis_payload()
+        report = _build_analysis_report(
+            {"meta": {}, "summary": {}, "details": {}},
+            "query-2071",
+            "600519",
+            fallback_raw_result_payload={"dashboard": {"strategy_synthesis": synthesis}},
+        )
+
+        self.assertIsNotNone(report.details)
+        self.assertEqual(report.details.strategy_synthesis.schema_version, "strategy-synthesis-v1")
+        self.assertEqual(report.details.strategy_synthesis.primary_dissent.skill_id, "bear")
+        self.assertEqual(report.details.raw_result["dashboard"]["strategy_synthesis"], synthesis)
+
+    def test_report_details_drops_legacy_or_malformed_strategy_projection(self) -> None:
+        from api.v1.schemas.history import ReportDetails
+
+        legacy = ReportDetails(raw_result={"dashboard": {"strategy_synthesis": {"final_signal": "buy"}}})
+        malformed = ReportDetails(
+            raw_result={
+                "dashboard": {
+                    "strategy_synthesis": {
+                        **_strategy_synthesis_payload(),
+                        "signal_distribution": "bad-shape",
+                    }
+                }
+            }
+        )
+        non_finite = ReportDetails(
+            raw_result={
+                "dashboard": {
+                    "strategy_synthesis": {
+                        **_strategy_synthesis_payload(),
+                        "confidence": "nan",
+                    }
+                }
+            }
+        )
+
+        self.assertIsNone(legacy.strategy_synthesis)
+        self.assertIsNone(malformed.strategy_synthesis)
+        self.assertIsNone(non_finite.strategy_synthesis)
+        json.dumps(non_finite.model_dump(), allow_nan=False)
+
+    def test_report_details_openapi_schema_exposes_typed_strategy_synthesis(self) -> None:
+        from api.v1.schemas.history import ReportDetails
+
+        schema = ReportDetails.model_json_schema()
+
+        self.assertIn("strategy_synthesis", schema["properties"])
+        self.assertIn("StrategySynthesis", json.dumps(schema, ensure_ascii=False))
+
     def test_trigger_market_review_accepts_background_task(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Dict, Optional
 
@@ -1124,7 +1125,86 @@ def normalize_strategy_synthesis_payload(value: Any) -> Dict[str, Any]:
             if isinstance(items, list)
             else []
         )
+    primary_dissent = payload.get("primary_dissent")
+    payload["primary_dissent"] = (
+        dict(primary_dissent) if isinstance(primary_dissent, dict) else None
+    )
+
+    distribution = payload.get("signal_distribution")
+    if isinstance(distribution, dict):
+        normalized_distribution: Dict[str, Dict[str, Any]] = {}
+        for bucket_name in ("bullish", "neutral", "bearish"):
+            bucket = distribution.get(bucket_name)
+            if not isinstance(bucket, dict):
+                normalized_distribution = {}
+                break
+            count = bucket.get("count")
+            share = bucket.get("weight_share")
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                normalized_distribution = {}
+                break
+            if share is not None:
+                if isinstance(share, bool) or not isinstance(share, (int, float)):
+                    normalized_distribution = {}
+                    break
+                share = float(share)
+                if not math.isfinite(share) or not 0.0 <= share <= 1.0:
+                    normalized_distribution = {}
+                    break
+            normalized_distribution[bucket_name] = {
+                "count": count,
+                "weight_share": share,
+            }
+        payload["signal_distribution"] = normalized_distribution
+    else:
+        payload["signal_distribution"] = {}
     return payload
+
+
+def extract_strategy_synthesis_payload(value: Any) -> Dict[str, Any]:
+    """Extract the canonical v1 synthesis projection from nested report data.
+
+    Legacy and malformed payloads remain available through ``raw_result`` but
+    are intentionally absent from the typed API projection.
+    """
+    candidates = []
+    queue = [value] if isinstance(value, dict) else []
+    seen: set[int] = set()
+    while queue:
+        candidate = queue.pop(0)
+        candidate_id = id(candidate)
+        if candidate_id in seen:
+            continue
+        seen.add(candidate_id)
+        candidates.append(candidate)
+        for key in ("strategy_synthesis", "dashboard", "raw_result", "details", "report"):
+            nested = candidate.get(key)
+            if isinstance(nested, dict):
+                queue.append(nested)
+
+    for candidate in candidates:
+        normalized = normalize_strategy_synthesis_payload(candidate)
+        if normalized.get("schema_version") != "strategy-synthesis-v1":
+            continue
+        if normalized.get("final_signal") not in {
+            "strong_buy", "buy", "hold", "sell", "strong_sell"
+        }:
+            continue
+        if normalized.get("consensus_level") not in {
+            "high", "medium", "low", "insufficient"
+        }:
+            continue
+        if normalized.get("conflict_severity") not in {
+            "none", "low", "medium", "high"
+        }:
+            continue
+        distribution = normalized.get("signal_distribution")
+        if not isinstance(distribution, dict) or set(distribution) != {
+            "bullish", "neutral", "bearish"
+        }:
+            continue
+        return normalized
+    return {}
 
 
 def strategy_invalid_opinion_count(strategy_synthesis: Any) -> int:

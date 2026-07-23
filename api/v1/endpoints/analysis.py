@@ -52,6 +52,7 @@ from api.v1.schemas.history import (
     ReportSummary,
     ReportStrategy,
     ReportDetails,
+    StrategySynthesis,
 )
 from api.v1.schemas.run_flow import RunFlowSnapshot
 from data_provider.base import canonical_stock_code, normalize_stock_code
@@ -75,7 +76,11 @@ from src.market_phase_summary import (
     rebuild_market_phase_summary_for_stock_code,
 )
 from src.services.stock_code_utils import is_code_like, resolve_index_stock_code_for_analysis
-from src.report_language import get_localized_stock_name, normalize_report_language
+from src.report_language import (
+    extract_strategy_synthesis_payload,
+    get_localized_stock_name,
+    normalize_report_language,
+)
 from src.schemas.decision_action import build_action_fields
 from src.services.name_to_code_resolver import resolve_name_to_code
 from src.services.task_queue import (
@@ -901,7 +906,8 @@ def _ensure_report_action_fields(report_data: Dict[str, Any]) -> Dict[str, Any]:
     enriched_report = dict(report_data)
     meta = dict(enriched_report.get("meta") or {})
     summary = dict(enriched_report.get("summary") or {})
-    details = enriched_report.get("details") if isinstance(enriched_report.get("details"), dict) else {}
+    original_details = enriched_report.get("details")
+    details = dict(original_details) if isinstance(original_details, dict) else {}
     raw_result = details.get("raw_result") if isinstance(details.get("raw_result"), dict) else {}
     report_language = normalize_report_language(
         meta.get("report_language") or raw_result.get("report_language")
@@ -921,6 +927,20 @@ def _ensure_report_action_fields(report_data: Dict[str, Any]) -> Dict[str, Any]:
     summary["action"] = action_fields["action"]
     summary["action_label"] = action_fields["action_label"]
     enriched_report["summary"] = summary
+    strategy_synthesis = extract_strategy_synthesis_payload(details.get("strategy_synthesis"))
+    if not strategy_synthesis:
+        strategy_synthesis = extract_strategy_synthesis_payload(raw_result)
+    if not strategy_synthesis:
+        strategy_synthesis = extract_strategy_synthesis_payload(report_data)
+    if strategy_synthesis:
+        try:
+            details["strategy_synthesis"] = StrategySynthesis.model_validate(
+                strategy_synthesis
+            ).model_dump()
+        except (TypeError, ValueError):
+            details.pop("strategy_synthesis", None)
+    if details:
+        enriched_report["details"] = details
     return enriched_report
 
 
@@ -1158,6 +1178,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                 context_snapshot,
                 raw_result,
             )
+            strategy_synthesis = extract_strategy_synthesis_payload(raw_result)
             has_board_details = (
                 bool(extracted_boards.get("belong_boards"))
                 or extracted_boards.get("sector_rankings") is not None
@@ -1170,6 +1191,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                 or market_structure is not None
                 or context_snapshot is not None
                 or analysis_context_pack_overview is not None
+                or strategy_synthesis
             ):
                 details = ReportDetails(
                     news_content=getattr(record, "news_content", None),
@@ -1182,6 +1204,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     sector_rankings=extracted_boards.get("sector_rankings"),
                     concept_rankings=extracted_boards.get("concept_rankings"),
                     market_structure=market_structure,
+                    strategy_synthesis=strategy_synthesis or None,
                 )
 
             raw_dict = raw_result if isinstance(raw_result, dict) else {}
@@ -1455,6 +1478,12 @@ def _build_analysis_report(
             break
     analysis_context_pack_overview = extract_analysis_context_pack_overview(context_snapshot)
     api_context_snapshot = sanitize_context_snapshot_for_api(context_snapshot)
+    strategy_synthesis = extract_strategy_synthesis_payload(details_data.get("strategy_synthesis"))
+    if not strategy_synthesis:
+        for candidate in (raw_result_data, fallback_raw_result_payload, details_data):
+            strategy_synthesis = extract_strategy_synthesis_payload(candidate)
+            if strategy_synthesis:
+                break
     details = None
     has_board_details = (
         bool(extracted_boards.get("belong_boards"))
@@ -1468,6 +1497,7 @@ def _build_analysis_report(
         or market_structure is not None
         or context_snapshot is not None
         or analysis_context_pack_overview is not None
+        or strategy_synthesis
     ):
         details = ReportDetails(
             news_content=details_data.get("news_summary") or details_data.get("news_content"),
@@ -1480,6 +1510,7 @@ def _build_analysis_report(
             sector_rankings=extracted_boards.get("sector_rankings"),
             concept_rankings=extracted_boards.get("concept_rankings"),
             market_structure=market_structure,
+            strategy_synthesis=strategy_synthesis or None,
         )
 
     return AnalysisReport(
