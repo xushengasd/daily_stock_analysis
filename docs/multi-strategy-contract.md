@@ -363,8 +363,8 @@ Phase 3 在 Phase 2 之上补稳定展示投影和前端（`apps/dsa-web/`、`ap
 
 - 顶层 `schema_version` 固定为 `strategy-synthesis-v1`。`signal_distribution` 只统计 valid opinion，并使用 Aggregator 本次实际应用的权重；有效总权重大于 0 时三桶占比约等于 1，否则三桶 `weight_share` 均为 `null`。
 - `primary_dissent` 只从 `opposing_skills` 选择，排序依次为实际权重降序、置信度降序、`skill_id` 升序；它只用于解释，不参与或覆盖 `final_signal`。
-- `report.details.strategy_synthesis` 是正式、可选、低敏的 Pydantic/OpenAPI 投影，覆盖同步结果、内存异步完成、数据库回退完成和历史详情；`details.raw_result` 保持兼容。旧版本、坏结构和 single-agent 结果投影为 `null`，不得导致 500。
-- Web 报告详情页展示权威最终信号、共识度、有效/无效计数、三桶分布、支持/反方观点、主要异议、冲突详情，以及可选 deliberation / revision projection。
+- `report.details.strategy_synthesis` 是正式、可选、低敏的 Pydantic/OpenAPI 投影，覆盖同步结果、内存异步完成、数据库回退完成和历史详情；`details.raw_result` 保持兼容。所有 candidate 必须先在统一投影边界完成列表逐项过滤和完整类型校验，再按 typed → raw 的既定优先级选择；非法 opinion/conflict 只丢弃自身，非法 `primary_dissent` 降级为 `null`，非法可选 deliberation/revision 子树只丢弃对应子树。required 顶层字段非法时继续查找后续合法 candidate，禁止坏 typed candidate 遮蔽合法 raw candidate。旧版本、所有 candidate 均坏和 single-agent 结果投影为 `null`，不得导致 500。
+- Web 报告详情页展示权威最终信号、共识度、有效/无效计数、三桶分布、支持/反方观点、主要异议、三语冲突说明，以及可选 deliberation / revision projection。deliberation 必须展示解决状态、已解决/未解决冲突数、少数派观点保留状态和置信度调整；内部 mode 只能作为次要追踪信息。所有非空 reasoning 默认折叠并提供稳定展开入口，不得用字符数代替真实布局溢出判断。
 - 桌面端复用 Web 展示逻辑。
 - Web 使用 zh/en/ko 三语 label；revision projection 必须明确标记为“预览/非权威”，不得让用户误解为最终建议。
 - Phase 3 不新增 API 端点、数据库字段或历史回填，不在前端重算权威分布或异议排序。
@@ -427,7 +427,7 @@ DecisionAgent 输出的 dashboard JSON 不得覆盖 `dashboard.strategy_synthesi
 
 空列表占位符必须通过 `labels.none_label`（按 `report_language` 查表）输出。四条 renderer 展示的最终文本必须与 payload 完全一致，不得出现"共识度：高 + 支持策略：无"这类内部矛盾。
 
-历史记录和外部调用方可能保留契约落地前的宽松 shape。四条 renderer 必须先通过 `normalize_strategy_synthesis_payload()` 把非 dict 顶层值视为缺失，并过滤非 dict 的策略/冲突列表项；`strategy_invalid_opinion_count()` 统一读取诊断计数，只对纯十进制正整数字符串做窄转换，其余坏值降级为 0。禁止在 History、Notification 或模板中保留平行的手写读取逻辑。
+历史记录和外部调用方可能保留契约落地前的宽松 shape。四条 renderer 和正式 API 投影必须复用 `normalize_strategy_synthesis_payload()`：非 dict 顶层值视为缺失，策略/冲突列表逐项执行字段级类型校验，非法 `primary_dissent` 降级为 `null`。`extract_strategy_synthesis_payload()` 是 candidate 发现、优先级、逐项过滤和完整 Pydantic 校验的唯一边界；调用方一次传入按优先级排列的 typed/raw candidate，当前 candidate 失败时由该边界继续遍历后续 candidate。`strategy_invalid_opinion_count()` 统一读取诊断计数，只对纯十进制正整数字符串做窄转换，其余坏值降级为 0。禁止在 endpoint、History、Notification 或模板中保留平行的手写读取和 fallback 逻辑。
 
 ### Diagnostics
 

@@ -47,3 +47,16 @@ def test_macos_backend_build_script_collects_alphasift_adapter() -> None:
     assert 'normalized.startswith("alphasift/dsa_adapter.")' not in script
     assert "DSA_PACKAGED_IMPORT_PROBE" in main_py
     assert "importlib.import_module(_packaged_import_probe)" in main_py
+
+
+def test_macos_desktop_build_verifies_app_signature_before_dmg() -> None:
+    script = _read_text(REPO_ROOT / "scripts" / "build-desktop-macos.sh")
+
+    build_dir = script.index("npx electron-builder --mac dir")
+    sign_app = script.index("codesign --force --deep --sign -")
+    verify_app = script.index("codesign --verify --deep --strict")
+    build_dmg = script.index("npx electron-builder --mac dmg --prepackaged")
+
+    assert build_dir < sign_app < verify_app < build_dmg
+    assert 'xattr -cr "${app_path}"' in script
+    assert '--prepackaged "${app_path}"' in script

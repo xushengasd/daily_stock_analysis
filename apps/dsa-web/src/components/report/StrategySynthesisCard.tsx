@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, CircleMinus, GitCompareArrows, ShieldCheck } from 'lucide-react';
 import type {
   ReportLanguage,
@@ -22,6 +22,12 @@ const percent = (value?: number | null) => (
   typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value * 100)}%` : '—'
 );
 
+const signedPercent = (value?: number | null) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  const percentage = Math.round(value * 100);
+  return `${percentage > 0 ? '+' : ''}${percentage}%`;
+};
+
 const severityVariant = (severity: StrategyConflictSeverity) => {
   if (severity === 'high') return 'danger' as const;
   if (severity === 'medium') return 'warning' as const;
@@ -43,8 +49,8 @@ const SignalIcon = ({ signal }: { signal: StrategySignal }) => {
 
 const OpinionRow = ({ opinion, text }: { opinion: StrategyOpinionItem; text: Text }) => {
   const [expanded, setExpanded] = useState(false);
+  const reasoningId = useId();
   const reasoning = (opinion.reasoning || '').trim();
-  const canExpand = reasoning.length > 120;
 
   return (
     <li className="rounded-xl border border-border/55 bg-elevated/45 p-3">
@@ -65,19 +71,18 @@ const OpinionRow = ({ opinion, text }: { opinion: StrategyOpinionItem; text: Tex
       </div>
       {reasoning ? (
         <div className="mt-2">
-          <p className={expanded ? 'whitespace-pre-wrap break-words text-sm text-secondary-text' : 'line-clamp-2 break-words text-sm text-secondary-text'}>
+          <p id={reasoningId} className={expanded ? 'whitespace-pre-wrap break-words text-sm text-secondary-text' : 'line-clamp-2 break-words text-sm text-secondary-text'}>
             {reasoning}
           </p>
-          {canExpand ? (
-            <button
-              type="button"
-              aria-expanded={expanded}
-              className="mt-1 text-xs font-medium text-cyan hover:underline"
-              onClick={() => setExpanded((value) => !value)}
-            >
-              {expanded ? text.showLess : text.showMore}
-            </button>
-          ) : null}
+          <button
+            type="button"
+            aria-controls={reasoningId}
+            aria-expanded={expanded}
+            className="mt-1 text-xs font-medium text-cyan hover:underline"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? text.showLess : text.showMore}
+          </button>
         </div>
       ) : null}
     </li>
@@ -114,6 +119,7 @@ export const StrategySynthesisCard = ({
   if (!synthesis || synthesis.schemaVersion !== 'strategy-synthesis-v1') return null;
 
   const text = getReportText(normalizeReportLanguage(language));
+  const conflictDescriptions = text.conflictDescriptions as Record<string, string>;
   const distribution = [
     { key: 'bullish', label: text.bullish, icon: ArrowUp, value: synthesis.signalDistribution.bullish, tone: 'bg-success' },
     { key: 'neutral', label: text.neutral, icon: CircleMinus, value: synthesis.signalDistribution.neutral, tone: 'bg-cyan' },
@@ -208,7 +214,10 @@ export const StrategySynthesisCard = ({
               {synthesis.conflicts.map((conflict, index) => (
                 <li key={`${conflict.conflictType}-${index}`} className="flex flex-wrap items-center gap-2 text-sm text-secondary-text">
                   <Badge variant={severityVariant(conflict.severity)}>{text.severityLabels[conflict.severity]}</Badge>
-                  <span className="font-mono">{conflict.conflictType.replaceAll('_', ' ')}</span>
+                  <span>
+                    {conflictDescriptions[conflict.descriptionKey?.replace('strategy_conflict.', '') || conflict.conflictType]
+                      || text.unknownConflict}
+                  </span>
                   <span className="text-muted-text">{conflict.participants.join(', ')}</span>
                 </li>
               ))}
@@ -219,9 +228,37 @@ export const StrategySynthesisCard = ({
         {synthesis.deliberation ? (
           <section aria-label={text.deliberation} className="mt-5 rounded-xl border border-cyan/25 bg-cyan/5 p-3">
             <h4 className="text-sm font-semibold text-foreground">{text.deliberation}</h4>
-            <p className="mt-1 text-sm text-secondary-text">
-              {synthesis.deliberation.mode} · {text.rounds} {synthesis.deliberation.rounds} · {text.responses} {synthesis.deliberation.responses.length}
+            <p className="mt-1 text-xs text-muted-text">
+              {text.deliberationMode}: {synthesis.deliberation.mode} · {text.rounds} {synthesis.deliberation.rounds} · {text.responses} {synthesis.deliberation.responses.length}
             </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-cyan/20 bg-background/35 p-2.5">
+                <span className="text-xs text-muted-text">{text.resolutionStatus}</span>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {text.resolutionStatusLabels[synthesis.deliberation.summary.resolutionStatus]}
+                </p>
+              </div>
+              <div className="rounded-lg border border-cyan/20 bg-background/35 p-2.5">
+                <span className="text-xs text-muted-text">{text.resolvedConflicts} / {text.unresolvedConflicts}</span>
+                <p className="mt-1 font-mono text-sm font-semibold text-foreground">
+                  {synthesis.deliberation.summary.resolvedConflictCount} / {synthesis.deliberation.summary.unresolvedConflictCount}
+                </p>
+              </div>
+              <div className="rounded-lg border border-cyan/20 bg-background/35 p-2.5">
+                <span className="text-xs text-muted-text">{text.minorityView}</span>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {synthesis.deliberation.summary.minorityViewPreserved
+                    ? text.minorityPreserved
+                    : text.minorityNotPreserved}
+                </p>
+              </div>
+              <div className="rounded-lg border border-cyan/20 bg-background/35 p-2.5">
+                <span className="text-xs text-muted-text">{text.confidenceAdjustment}</span>
+                <p className="mt-1 font-mono text-sm font-semibold text-foreground">
+                  {signedPercent(synthesis.deliberation.summary.confidenceAdjustment)}
+                </p>
+              </div>
+            </div>
           </section>
         ) : null}
 

@@ -52,7 +52,6 @@ from api.v1.schemas.history import (
     ReportSummary,
     ReportStrategy,
     ReportDetails,
-    StrategySynthesis,
 )
 from api.v1.schemas.run_flow import RunFlowSnapshot
 from data_provider.base import canonical_stock_code, normalize_stock_code
@@ -927,18 +926,13 @@ def _ensure_report_action_fields(report_data: Dict[str, Any]) -> Dict[str, Any]:
     summary["action"] = action_fields["action"]
     summary["action_label"] = action_fields["action_label"]
     enriched_report["summary"] = summary
-    strategy_synthesis = extract_strategy_synthesis_payload(details.get("strategy_synthesis"))
-    if not strategy_synthesis:
-        strategy_synthesis = extract_strategy_synthesis_payload(raw_result)
-    if not strategy_synthesis:
-        strategy_synthesis = extract_strategy_synthesis_payload(report_data)
+    strategy_synthesis = extract_strategy_synthesis_payload(
+        details.get("strategy_synthesis"),
+        raw_result,
+        report_data,
+    )
     if strategy_synthesis:
-        try:
-            details["strategy_synthesis"] = StrategySynthesis.model_validate(
-                strategy_synthesis
-            ).model_dump()
-        except (TypeError, ValueError):
-            details.pop("strategy_synthesis", None)
+        details["strategy_synthesis"] = strategy_synthesis
     if details:
         enriched_report["details"] = details
     return enriched_report
@@ -1478,12 +1472,12 @@ def _build_analysis_report(
             break
     analysis_context_pack_overview = extract_analysis_context_pack_overview(context_snapshot)
     api_context_snapshot = sanitize_context_snapshot_for_api(context_snapshot)
-    strategy_synthesis = extract_strategy_synthesis_payload(details_data.get("strategy_synthesis"))
-    if not strategy_synthesis:
-        for candidate in (raw_result_data, fallback_raw_result_payload, details_data):
-            strategy_synthesis = extract_strategy_synthesis_payload(candidate)
-            if strategy_synthesis:
-                break
+    strategy_synthesis = extract_strategy_synthesis_payload(
+        details_data.get("strategy_synthesis"),
+        raw_result_data,
+        fallback_raw_result_payload,
+        details_data,
+    )
     details = None
     has_board_details = (
         bool(extracted_boards.get("belong_boards"))

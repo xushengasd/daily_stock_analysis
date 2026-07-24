@@ -292,6 +292,86 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         self.assertIsNone(non_finite.strategy_synthesis)
         json.dumps(non_finite.model_dump(), allow_nan=False)
 
+    def test_report_details_filters_invalid_strategy_list_items_independently(self) -> None:
+        from api.v1.schemas.history import ReportDetails
+
+        synthesis = _strategy_synthesis_payload()
+        valid_supporting = {
+            **synthesis["opposing_skills"][0],
+            "skill_id": "bull",
+            "signal": "buy",
+            "reasoning": "bull case",
+        }
+        synthesis["supporting_skills"] = [
+            valid_supporting,
+            {**valid_supporting, "skill_id": "bad-support", "signal": "invalid"},
+        ]
+        synthesis["opposing_skills"] = [
+            synthesis["opposing_skills"][0],
+            {"skill_id": "bad-oppose", "signal": "invalid"},
+        ]
+        synthesis["conflicts"] = [
+            synthesis["conflicts"][0],
+            {"conflict_type": "bad-conflict", "severity": "critical"},
+        ]
+        synthesis["primary_dissent"] = {
+            "skill_id": "bad-primary",
+            "signal": "invalid",
+        }
+
+        details = ReportDetails(strategy_synthesis=synthesis)
+
+        self.assertEqual(
+            [item.skill_id for item in details.strategy_synthesis.supporting_skills],
+            ["bull"],
+        )
+        self.assertEqual(
+            [item.skill_id for item in details.strategy_synthesis.opposing_skills],
+            ["bear"],
+        )
+        self.assertEqual(
+            [item.conflict_type for item in details.strategy_synthesis.conflicts],
+            ["directional_opposition"],
+        )
+        self.assertIsNone(details.strategy_synthesis.primary_dissent)
+
+    def test_invalid_typed_strategy_candidate_falls_back_to_valid_raw_candidate(self) -> None:
+        from api.v1.schemas.history import ReportDetails
+
+        valid = _strategy_synthesis_payload()
+        invalid_typed = {**valid, "final_signal": "invalid"}
+
+        details = ReportDetails(
+            strategy_synthesis=invalid_typed,
+            raw_result={"dashboard": {"strategy_synthesis": valid}},
+        )
+
+        self.assertIsNotNone(details.strategy_synthesis)
+        self.assertEqual(details.strategy_synthesis.final_signal, "hold")
+        self.assertEqual(details.strategy_synthesis.primary_dissent.skill_id, "bear")
+
+    def test_report_enrichment_does_not_let_invalid_typed_candidate_shadow_raw(self) -> None:
+        if analysis_endpoint_module is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        valid = _strategy_synthesis_payload()
+        report = analysis_endpoint_module._ensure_report_action_fields(
+            {
+                "meta": {},
+                "summary": {},
+                "details": {
+                    "strategy_synthesis": {**valid, "final_signal": "invalid"},
+                    "raw_result": {"dashboard": {"strategy_synthesis": valid}},
+                },
+            }
+        )
+
+        self.assertEqual(report["details"]["strategy_synthesis"]["final_signal"], "hold")
+        self.assertEqual(
+            report["details"]["strategy_synthesis"]["primary_dissent"]["skill_id"],
+            "bear",
+        )
+
     def test_report_details_openapi_schema_exposes_typed_strategy_synthesis(self) -> None:
         from api.v1.schemas.history import ReportDetails
 

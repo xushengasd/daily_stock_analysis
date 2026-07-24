@@ -101,28 +101,46 @@ describe('StrategySynthesisCard', () => {
     expect(screen.getByRole('img', { name: '看多: 权重占比 40%' })).toBeVisible();
     expect(screen.getByRole('region', { name: '主要异议' })).toBeVisible();
     expect(screen.getByRole('region', { name: '协同推理' })).toHaveTextContent('mediator_v0');
+    expect(screen.getByRole('region', { name: '协同推理' })).toHaveTextContent('部分解决');
+    expect(screen.getByRole('region', { name: '协同推理' })).toHaveTextContent('0 / 1');
+    expect(screen.getByRole('region', { name: '协同推理' })).toHaveTextContent('已保留');
+    expect(screen.getByRole('region', { name: '协同推理' })).toHaveTextContent('-6%');
+    fireEvent.click(screen.getByText('冲突详情 (1)'));
+    expect(screen.getByText(/策略方向出现对立/)).toBeVisible();
+    expect(screen.queryByText(/directional opposition/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('directional_opposition')).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: '修订投影' })).toHaveTextContent('预览（非权威，不改变最终信号）');
   });
 
-  it('supports long-reasoning expansion', () => {
+  it('offers expansion for every non-empty reasoning regardless of character count', () => {
     render(<StrategySynthesisCard synthesis={synthesis} language="zh" />);
 
     const buttons = screen.getAllByRole('button', { name: '展开理由' });
-    expect(buttons[0]).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(buttons[0]);
-    expect(buttons[0]).toHaveAttribute('aria-expanded', 'true');
-    expect(buttons[0]).toHaveTextContent('收起理由');
+    expect(buttons).toHaveLength(3);
+    expect(buttons[1]).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(buttons[1]);
+    expect(buttons[1]).toHaveAttribute('aria-expanded', 'true');
+    expect(buttons[1]).toHaveTextContent('收起理由');
   });
 
   it('renders synchronized English and Korean labels', () => {
     const { rerender } = render(<StrategySynthesisCard synthesis={synthesis} language="en" />);
     expect(screen.getByRole('region', { name: 'Consensus and Dissent' })).toBeVisible();
     expect(screen.getByText('Applied weight 0.2000')).toBeVisible();
+    fireEvent.click(screen.getByText('Conflict Details (1)'));
+    expect(screen.getByText(/Strategy directions diverge/)).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Deliberation' })).toHaveTextContent('Partially resolved');
+    expect(screen.getByRole('region', { name: 'Deliberation' })).toHaveTextContent('Preserved');
+    expect(screen.getByRole('region', { name: 'Deliberation' })).toHaveTextContent('-6%');
     expect(screen.getByText('Preview (non-authoritative; final signal unchanged)')).toBeVisible();
 
     rerender(<StrategySynthesisCard synthesis={synthesis} language="ko" />);
     expect(screen.getByRole('region', { name: '합의와 이견' })).toBeVisible();
     expect(screen.getByText('적용 가중치 0.2000')).toBeVisible();
+    expect(screen.getByText(/전략 방향이 엇갈립니다/)).toBeVisible();
+    expect(screen.getByRole('region', { name: '협업 추론' })).toHaveTextContent('부분 해결');
+    expect(screen.getByRole('region', { name: '협업 추론' })).toHaveTextContent('보존됨');
+    expect(screen.getByRole('region', { name: '협업 추론' })).toHaveTextContent('-6%');
     expect(screen.getByText('미리보기(비권위, 최종 신호 변경 없음)')).toBeVisible();
   });
 

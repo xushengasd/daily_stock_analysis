@@ -80,6 +80,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-all.ps1
 
 当前 macOS DMG 尚未使用 Apple Developer 证书签名和公证。通过浏览器下载后，macOS Gatekeeper 可能因此提示“Daily Stock Analysis 已损坏，无法打开”或“无法验证开发者”；这通常是系统对未签名、未公证应用的拦截，不代表 DMG 文件必然损坏。
 
+`scripts/build-desktop-macos.sh` 会先生成 `.app`，在无 Developer ID 的本地 smoke 环境执行 ad-hoc 签名并通过 `codesign --verify --deep --strict` 后，再从已验证的 bundle 生成 DMG。该步骤用于防止签名结构无效的 Electron 包在 `main.js` 运行前被 macOS 直接拦截，但不能替代面向用户发布所需的 Developer ID 签名与 notarization。
+
 请按以下顺序排查：
 
 1. 只从项目的 [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) 下载附件，并确认安装包架构与 Mac 一致：Apple 芯片（M1/M2/M3/M4 等）使用 `daily-stock-analysis-macos-arm64-<tag>.dmg`，Intel 芯片使用 `daily-stock-analysis-macos-x64-<tag>.dmg`。不要对第三方转载或来源不明的安装包绕过 Gatekeeper。

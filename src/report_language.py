@@ -8,6 +8,13 @@ import re
 from typing import Any, Dict, Optional
 
 from src.schemas.decision_scale import signal_key_for_score
+from src.schemas.strategy_synthesis import (
+    StrategyConflictItem,
+    StrategyDeliberation,
+    StrategyOpinionItem,
+    StrategyRevisionProjection,
+    StrategySynthesis,
+)
 
 SUPPORTED_REPORT_LANGUAGES = ("zh", "en", "ko")
 
@@ -1117,18 +1124,42 @@ def normalize_strategy_synthesis_payload(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict) or not value:
         return {}
 
+    def validated_item(model_type: Any, item: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(item, dict):
+            return None
+        try:
+            return model_type.model_validate(item).model_dump()
+        except (TypeError, ValueError):
+            return None
+
     payload = dict(value)
-    for key in ("supporting_skills", "opposing_skills", "conflicts"):
+    for key, model_type in (
+        ("supporting_skills", StrategyOpinionItem),
+        ("opposing_skills", StrategyOpinionItem),
+        ("conflicts", StrategyConflictItem),
+    ):
         items = payload.get(key)
         payload[key] = (
-            [item for item in items if isinstance(item, dict)]
+            [
+                normalized_item
+                for item in items
+                if (normalized_item := validated_item(model_type, item)) is not None
+            ]
             if isinstance(items, list)
             else []
         )
     primary_dissent = payload.get("primary_dissent")
-    payload["primary_dissent"] = (
-        dict(primary_dissent) if isinstance(primary_dissent, dict) else None
+    payload["primary_dissent"] = validated_item(
+        StrategyOpinionItem,
+        primary_dissent,
     )
+
+    for key, model_type in (
+        ("deliberation", StrategyDeliberation),
+        ("revision_projection", StrategyRevisionProjection),
+    ):
+        if key in payload:
+            payload[key] = validated_item(model_type, payload.get(key))
 
     distribution = payload.get("signal_distribution")
     if isinstance(distribution, dict):
@@ -1161,14 +1192,21 @@ def normalize_strategy_synthesis_payload(value: Any) -> Dict[str, Any]:
     return payload
 
 
-def extract_strategy_synthesis_payload(value: Any) -> Dict[str, Any]:
+def extract_strategy_synthesis_payload(
+    value: Any,
+    *fallback_values: Any,
+) -> Dict[str, Any]:
     """Extract the canonical v1 synthesis projection from nested report data.
 
     Legacy and malformed payloads remain available through ``raw_result`` but
     are intentionally absent from the typed API projection.
     """
     candidates = []
-    queue = [value] if isinstance(value, dict) else []
+    queue = [
+        candidate
+        for candidate in (value, *fallback_values)
+        if isinstance(candidate, dict)
+    ]
     seen: set[int] = set()
     while queue:
         candidate = queue.pop(0)
@@ -1203,7 +1241,10 @@ def extract_strategy_synthesis_payload(value: Any) -> Dict[str, Any]:
             "bullish", "neutral", "bearish"
         }:
             continue
-        return normalized
+        try:
+            return StrategySynthesis.model_validate(normalized).model_dump()
+        except (TypeError, ValueError):
+            continue
     return {}
 
 

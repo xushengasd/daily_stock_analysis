@@ -81,10 +81,34 @@ fi
 
 echo "Building macOS target arch: ${MAC_ARCH:-default}"
 if [[ ${#ARCH_ARGS[@]} -gt 0 ]]; then
-  npx electron-builder --mac dmg "${ARCH_ARGS[@]}" --publish never
+  npx electron-builder --mac dir "${ARCH_ARGS[@]}" --publish never
 else
-  npx electron-builder --mac dmg --publish never
+  npx electron-builder --mac dir --publish never
 fi
+
+app_path=""
+if [[ -n "${MAC_ARCH}" && -d "dist/mac-${MAC_ARCH}/Daily Stock Analysis.app" ]]; then
+  app_path="dist/mac-${MAC_ARCH}/Daily Stock Analysis.app"
+elif [[ -d "dist/mac/Daily Stock Analysis.app" ]]; then
+  app_path="dist/mac/Daily Stock Analysis.app"
+fi
+
+if [[ -z "${app_path}" ]]; then
+  echo "Packaged macOS app not found under apps/dsa-desktop/dist."
+  exit 1
+fi
+
+# Local smoke builds do not have a Developer ID identity. An unsigned Electron
+# bundle can be rejected by modern Gatekeeper before main.js runs, so apply a
+# structural ad-hoc signature and verify it before creating the DMG. Release
+# signing/notarization can still replace this when a real identity is provided.
+echo "Applying ad-hoc signature to ${app_path}..."
+xattr -cr "${app_path}"
+codesign --force --deep --sign - --timestamp=none "${app_path}"
+codesign --verify --deep --strict --verbose=2 "${app_path}"
+
+echo "Building DMG from verified app bundle..."
+npx electron-builder --mac dmg --prepackaged "${app_path}" --publish never
 popd >/dev/null
 
 echo "Desktop build completed."
